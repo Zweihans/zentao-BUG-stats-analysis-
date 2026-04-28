@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.zentao_cookie
+server.log
+test_analyze*.json
+downloads/
+*.list.json
+last_state.json
+import_projects.json
+logs/
+.claude/
