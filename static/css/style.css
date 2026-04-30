@@ -1,8 +1,5 @@
 /* === 禅道BUG分析工具 - Expo 风格设计系统 === */
 
-/* Inter via Google Fonts，加载失败则回退系统字体 */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-
 :root {
   /* 主色调 - Monochrome */
   --black: #000000;
@@ -343,6 +340,54 @@ select option { color: var(--near-black); }
   max-width: 320px;
   text-align: center;
   line-height: 1.5;
+}
+
+/* ======== 趋势图人员标签 ======== */
+.trend-person-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--slate);
+  padding: 2px 0;
+}
+.trend-person-label:hover { color: var(--near-black); }
+
+/* ======== 欢迎页 ======== */
+.welcome {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-3xl);
+}
+.welcome-card {
+  text-align: center;
+  max-width: 400px;
+}
+.welcome-icon {
+  color: var(--silver);
+  margin-bottom: var(--space-lg);
+  display: inline-block;
+}
+.welcome-card h2 {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--near-black);
+  margin-bottom: var(--space-sm);
+  letter-spacing: -0.5px;
+}
+.welcome-card p {
+  font-size: 14px;
+  color: var(--slate);
+  line-height: 1.5;
+  margin-bottom: var(--space-lg);
+}
+.welcome-actions {
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: center;
 }
 
 /* ======== 提示条 ======== */

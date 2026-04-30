@@ -54,6 +54,20 @@ def _run_import(project_id: str, cookie: str, q: queue.Queue):
             saved_path = os.path.join(downloads_dir, os.path.basename(filepath))
             shutil.copy2(filepath, saved_path)
 
+            # 记录趋势数据（每日最后一次导入覆盖当日之前记录）
+            try:
+                from app.services.file_reader import read_file
+                from app.services.bug_analyzer import analyze
+                from app.services.trend_store import save_trend_record
+                from app.stores.focus_store import load_focus_list
+                bugs = read_file(saved_path)
+                fl = load_focus_list(project_id)
+                result = analyze(bugs, fl)
+                today = datetime.now().strftime('%Y-%m-%d')
+                save_trend_record(project_id, today, result)
+            except Exception:
+                pass  # 趋势记录失败不影响导入流程
+
             q.put({
                 "type": "complete",
                 "project": project_id,

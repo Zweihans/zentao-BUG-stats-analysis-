@@ -52,6 +52,17 @@ def extract_file_date(filepath: str) -> str:
         return ""
 
 
+@router.get("/analyze/last-state")
+async def get_last_state():
+    try:
+        if os.path.exists(LAST_STATE_FILE):
+            with open(LAST_STATE_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {"last_project_id": None}
+
+
 @router.get("/analyze/{project_id}")
 async def analyze_project(project_id: str):
     project = find_project(project_id)
@@ -103,17 +114,6 @@ async def analyze_project(project_id: str):
         pass
 
     return result
-
-
-@router.get("/analyze/last-state")
-async def get_last_state():
-    try:
-        if os.path.exists(LAST_STATE_FILE):
-            with open(LAST_STATE_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return {"last_project_id": None}
 
 
 @router.post("/analyze")

@@ -9,12 +9,13 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 app = FastAPI(title="禅道BUG分析工具", version="3.0.0")
 
-from app.api import projects, analyze, focus, import_api, export
+from app.api import projects, analyze, focus, import_api, export, trend
 app.include_router(projects.router, prefix="/api")
 app.include_router(analyze.router, prefix="/api")
 app.include_router(focus.router, prefix="/api")
 app.include_router(import_api.router, prefix="/api")
 app.include_router(export.router, prefix="/api")
+app.include_router(trend.router, prefix="/api")
 
 
 @app.get("/api/health")

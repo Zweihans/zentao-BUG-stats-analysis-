@@ -61,4 +61,8 @@ const API = {
     csv(projectId) { window.location.href = '/api/export/' + projectId; },
   },
   cleanup() { return API.post('/cleanup'); },
+  trend: {
+    get(projectId) { return API.get('/trend/' + projectId); },
+    delete(projectId) { return API.del('/trend/' + projectId); },
+  },
 };

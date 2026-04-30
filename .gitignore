@@ -4,6 +4,7 @@ __pycache__/
 server.log
 test_analyze*.json
 downloads/
+trends/
 *.list.json
 last_state.json
 import_projects.json

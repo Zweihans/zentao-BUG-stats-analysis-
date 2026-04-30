@@ -9,6 +9,11 @@ function navigateTo(pageName) {
   const nav = document.querySelector('[data-page="' + pageName + '"]');
   if (nav) nav.classList.add('active');
 
+  // URL hash 路由，刷新后保持当前页面
+  if (location.hash !== '#' + pageName) {
+    history.replaceState(null, '', '#' + pageName);
+  }
+
   if (pageName === 'settings') loadSettingsPage();
   if (pageName === 'batch') loadBatchPage();
   if (pageName === 'config') loadConfigPage();
@@ -46,17 +51,26 @@ function getSelectedProjectId(selector) {
 }
 
 // ========== 数据分析页 ==========
-var _previousUnfocused = [];
+// 按项目持久化"已提醒过"的未关注人员（sessionStorage：刷新不丢失，关浏览器自动清）
+function _unfocusedSeenKey(projectId) { return 'unfocused_seen_' + projectId; }
+function _getUnfocusedSeen(projectId) {
+  try { return JSON.parse(sessionStorage.getItem(_unfocusedSeenKey(projectId)) || '[]'); } catch (e) { return []; }
+}
+function _setUnfocusedSeen(projectId, names) {
+  try { sessionStorage.setItem(_unfocusedSeenKey(projectId), JSON.stringify(names)); } catch (e) {}
+}
 
 document.getElementById('project-select').addEventListener('change', async function() {
   const pid = this.value;
   if (!pid) {
+    document.getElementById('analysis-welcome').style.display = 'none';
     document.getElementById('analysis-empty').style.display = 'flex';
     document.getElementById('analysis-loaded').style.display = 'none';
     document.getElementById('unfocused-alert').style.display = 'none';
-    _previousUnfocused = [];
     return;
   }
+  document.getElementById('analysis-welcome').style.display = 'none';
+  document.getElementById('analysis-empty').style.display = 'none';
   await loadAnalysisData(pid);
 });
 
@@ -107,6 +121,7 @@ function filterBugTable() {
 }
 
 async function loadAnalysisData(projectId) {
+  document.getElementById('analysis-welcome').style.display = 'none';
   document.getElementById('analysis-empty').style.display = 'none';
   const container = document.getElementById('analysis-loaded');
   container.style.display = 'flex';
@@ -116,15 +131,25 @@ async function loadAnalysisData(projectId) {
     _currentPersons = data.persons || [];
     renderPersonList(_currentPersons);
 
-    // 未关注人员提示 — 只提醒新增的
-    var unfocused = data.unfocused_persons || [];
-    var newUnfocused = unfocused.filter(function(name) {
-      return _previousUnfocused.indexOf(name) === -1;
+    // 已关注人员激活 BUG 总数
+    var focusActive = 0;
+    _currentPersons.forEach(function(p) {
+      if (p.focus) focusActive += (p.active || 0);
     });
-    _previousUnfocused = unfocused;
+    var summaryEl = document.getElementById('focus-active-summary');
+    if (summaryEl) summaryEl.textContent = '已关注人员 · 激活 BUG: ' + focusActive;
+
+    // 未关注人员提示 — 每个项目只提醒一次，新导入后有新增人员才提醒
+    var unfocused = data.unfocused_persons || [];
+    var seen = _getUnfocusedSeen(projectId);
+    var newUnfocused = unfocused.filter(function(name) {
+      return seen.indexOf(name) === -1;
+    });
+    _setUnfocusedSeen(projectId, unfocused);
     var alertEl = document.getElementById('unfocused-alert');
     if (newUnfocused.length > 0) {
       document.getElementById('unfocused-names').textContent = newUnfocused.join('、');
+      _quickAddNames = newUnfocused;
       alertEl.style.display = 'flex';
     } else {
       alertEl.style.display = 'none';
@@ -313,6 +338,8 @@ function escHtml(str) {
 // ========== 关注人员管理模态窗口 ==========
 var _focusModalProjectId = null;
 var _focusModalPersons = [];
+var _focusQuickAddMode = false;
+var _quickAddNames = [];
 
 document.getElementById('btn-focus-manage').addEventListener('click', function() {
   var pid = getSelectedProjectId('#project-select');
@@ -337,7 +364,17 @@ document.getElementById('btn-focus-modal-save').addEventListener('click', async 
   checks.forEach(function(cb) { if (cb.checked) selected.push(cb.dataset.name); });
   var projectId = _focusModalProjectId;
   try {
-    await API.focus.update(projectId, selected);
+    if (_focusQuickAddMode) {
+      // 快速添加模式：合并到现有关注列表
+      var existing = await API.focus.get(projectId);
+      var merged = (existing.persons || []).slice();
+      selected.forEach(function(name) {
+        if (merged.indexOf(name) === -1) merged.push(name);
+      });
+      await API.focus.update(projectId, merged);
+    } else {
+      await API.focus.update(projectId, selected);
+    }
     closeFocusModal();
     // 刷新人员列表
     var pid = getSelectedProjectId('#project-select');
@@ -391,13 +428,35 @@ async function openFocusModal(projectId) {
   }
 }
 
+function openUnfocusedQuickAdd(projectId) {
+  if (!projectId) {
+    projectId = getSelectedProjectId('#project-select');
+    if (!projectId) { alert('请先选择项目'); return; }
+  }
+  _focusModalProjectId = projectId;
+  _focusQuickAddMode = true;
+  document.getElementById('focus-modal-title').textContent = '新增人员关注';
+  document.getElementById('focus-modal').style.display = 'flex';
+  document.getElementById('focus-modal-search').value = '';
+  _focusModalPersons = _quickAddNames.map(function(name) {
+    return { name: name, checked: false };
+  });
+  renderFocusModalList('');
+}
+
 function renderFocusModalList(query) {
   var list = document.getElementById('focus-modal-list');
-  // 始终渲染全部人员，搜索时仅隐藏不匹配的行，避免丢失勾选状态
   if (!_focusModalPersons.length) {
     list.innerHTML = '<div style="padding:16px; text-align:center; color:var(--silver); font-size:13px;">暂无数据</div>';
     return;
   }
+  // 渲染前从当前 DOM 读回勾选状态，避免搜索过滤重渲染丢失
+  var domChecks = list.querySelectorAll('input[type=checkbox]');
+  domChecks.forEach(function(cb) {
+    var name = cb.dataset.name;
+    var p = _focusModalPersons.find(function(x) { return x.name === name; });
+    if (p) p.checked = cb.checked;
+  });
   list.innerHTML = _focusModalPersons.map(function(p) {
     var hidden = query && p.name.toLowerCase().indexOf(query) === -1;
     return '<label style="display:' + (hidden ? 'none' : 'flex') + '; align-items:center; gap:8px; padding:8px 0; cursor:pointer; font-size:13px; border-bottom:1px solid var(--border-lavender);">' +
@@ -409,8 +468,10 @@ function renderFocusModalList(query) {
 
 function closeFocusModal() {
   document.getElementById('focus-modal').style.display = 'none';
+  document.getElementById('focus-modal-title').textContent = '管理关注人员';
   _focusModalProjectId = null;
   _focusModalPersons = [];
+  _focusQuickAddMode = false;
 }
 
 // ========== 图表模块 ==========
@@ -583,6 +644,225 @@ function renderPieChart() {
   }).join('');
 }
 
+// ========== 趋势图 ==========
+var _trendChart = null;
+var _trendData = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+  var trendBtn = document.getElementById('btn-chart-trend');
+  if (trendBtn) {
+    trendBtn.addEventListener('click', function() {
+      var pid = getSelectedProjectId('#project-select');
+      if (!pid) { alert('请先选择项目'); return; }
+      openTrendModal(pid);
+    });
+  }
+
+  var trendCloseBtn = document.getElementById('btn-chart-trend-close');
+  if (trendCloseBtn) {
+    trendCloseBtn.addEventListener('click', closeTrendModal);
+  }
+
+  var trendOverlay = document.getElementById('chart-trend-modal');
+  if (trendOverlay) {
+    trendOverlay.addEventListener('click', function(e) {
+      if (e.target === this) closeTrendModal();
+    });
+  }
+});
+
+// 人员/数据筛选标签
+document.addEventListener('click', function(e) {
+  if (e.target.classList.contains('trend-person-tag')) {
+    document.querySelectorAll('.trend-person-tag').forEach(t => t.classList.remove('active'));
+    e.target.classList.add('active');
+    updateTrendPersonCheckboxes(e.target.dataset.trendPerson);
+    renderTrendChart();
+  }
+  if (e.target.classList.contains('trend-data-tag')) {
+    document.querySelectorAll('.trend-data-tag').forEach(t => t.classList.remove('active'));
+    e.target.classList.add('active');
+    renderTrendChart();
+  }
+  if (e.target.classList.contains('trend-view-tag')) {
+    document.querySelectorAll('.trend-view-tag').forEach(t => t.classList.remove('active'));
+    e.target.classList.add('active');
+    renderTrendChart();
+  }
+});
+
+document.getElementById('trend-person-search').addEventListener('input', function() {
+  updateTrendPersonCheckboxes();
+  renderTrendChart();
+});
+
+async function openTrendModal(projectId) {
+  document.getElementById('chart-trend-modal').style.display = 'flex';
+  document.querySelector('.trend-person-tag[data-trend-person="focus"]').classList.add('active');
+  document.querySelector('.trend-person-tag[data-trend-person="all"]').classList.remove('active');
+  document.querySelector('.trend-data-tag[data-trend-data="total"]').classList.add('active');
+  document.querySelector('.trend-data-tag[data-trend-data="active"]').classList.remove('active');
+  document.querySelector('.trend-view-tag[data-trend-view="sum"]').classList.add('active');
+  document.querySelector('.trend-view-tag[data-trend-view="single"]').classList.remove('active');
+  document.getElementById('trend-person-search').value = '';
+
+  try {
+    var data = await API.trend.get(projectId);
+    _trendData = data;
+    updateTrendPersonCheckboxes('focus');
+    renderTrendChart();
+    if (!data || !data.records || data.records.length === 0) {
+      document.getElementById('trend-person-checkboxes').innerHTML = '<span style="color:var(--silver); padding:4px 0;">暂无趋势数据，请先导入数据</span>';
+    }
+  } catch (e) {
+    console.error('Trend chart error:', e);
+    document.getElementById('trend-person-checkboxes').innerHTML = '<span style="color:var(--rose); padding:4px 0;">加载失败: ' + (e.message || '未知错误') + '</span>';
+    if (_trendChart) { _trendChart.destroy(); _trendChart = null; }
+  }
+}
+
+function closeTrendModal() {
+  document.getElementById('chart-trend-modal').style.display = 'none';
+  if (_trendChart) { _trendChart.destroy(); _trendChart = null; }
+  _trendData = null;
+}
+
+function updateTrendPersonCheckboxes(filterOverride) {
+  if (!_trendData || !_trendData.records || _trendData.records.length === 0) return;
+
+  var filter = filterOverride || document.querySelector('.trend-person-tag.active')?.dataset.trendPerson || 'focus';
+  var query = document.getElementById('trend-person-search').value.toLowerCase();
+
+  var allNames = new Set();
+  _trendData.records.forEach(function(rec) {
+    (rec.persons || []).forEach(function(p) { allNames.add(p.name); });
+  });
+
+  var focusNames = new Set();
+  if (filter === 'focus' && typeof _currentPersons !== 'undefined') {
+    _currentPersons.forEach(function(p) {
+      if (p.focus) focusNames.add(p.name);
+    });
+  }
+
+  var checkedMap = {};
+  var container = document.getElementById('trend-person-checkboxes');
+  container.querySelectorAll('input[type="checkbox"]').forEach(function(cb) {
+    checkedMap[cb.value] = cb.checked;
+  });
+
+  var html = '';
+  var names = Array.from(allNames).sort();
+  names.forEach(function(name) {
+    var matchesSearch = !query || name.toLowerCase().indexOf(query) !== -1;
+    var matchesFilter = filter === 'all' || focusNames.has(name);
+    var visible = matchesSearch && matchesFilter;
+    if (!(name in checkedMap)) checkedMap[name] = (filter === 'focus' ? focusNames.has(name) : true);
+    var checked = checkedMap[name] ? ' checked' : '';
+    html += '<label class="trend-person-label" style="' + (visible ? '' : 'display:none;') + '">' +
+      '<input type="checkbox" value="' + escHtml(name) + '"' + checked + ' onchange="renderTrendChart()"> ' +
+      escHtml(name) + '</label>';
+  });
+  container.innerHTML = html;
+}
+
+function renderTrendChart() {
+  if (_trendChart) { _trendChart.destroy(); _trendChart = null; }
+  if (!_trendData || !_trendData.records || _trendData.records.length === 0) return;
+
+  var dataType = document.querySelector('.trend-data-tag.active')?.dataset.trendData || 'total';
+
+  var checkedNames = [];
+  document.querySelectorAll('#trend-person-checkboxes input[type="checkbox"]:checked').forEach(function(cb) {
+    checkedNames.push(cb.value);
+  });
+
+  // 更新勾选人员 BUG 总量（取最新一条记录的数据）
+  var latestRecord = _trendData.records[_trendData.records.length - 1];
+  var checkedTotal = 0;
+  (latestRecord.persons || []).forEach(function(p) {
+    if (checkedNames.indexOf(p.name) !== -1) checkedTotal += (p[dataType] || 0);
+  });
+  var totalEl = document.getElementById('trend-checked-total');
+  if (totalEl) totalEl.textContent = checkedNames.length ? checkedTotal + ' BUG' : '';
+
+  if (checkedNames.length === 0) return;
+
+  var dates = _trendData.records.map(function(r) { return r.date; });
+
+  var COLORS = [
+    '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899',
+    '#06b6d4', '#f97316', '#6366f1', '#14b8a6', '#e11d48', '#64748b',
+    '#0ea5e9', '#d946ef', '#22c55e', '#eab308',
+  ];
+
+  var viewMode = document.querySelector('.trend-view-tag.active')?.dataset.trendView || 'sum';
+
+  var datasets;
+  if (viewMode === 'sum') {
+    // 合计视图：一条聚合折线
+    var sumData = _trendData.records.map(function(rec) {
+      var total = 0;
+      (rec.persons || []).forEach(function(p) {
+        if (checkedNames.indexOf(p.name) !== -1) total += (p[dataType] || 0);
+      });
+      return total;
+    });
+    datasets = [{
+      label: checkedNames.length + '人合计',
+      data: sumData,
+      borderColor: '#1c2024',
+      backgroundColor: 'rgba(28,32,36,0.08)',
+      borderWidth: 2.5,
+      borderDash: [],
+      pointRadius: 4,
+      pointHoverRadius: 6,
+      pointBackgroundColor: '#1c2024',
+      tension: 0.3,
+      spanGaps: true,
+    }];
+  } else {
+    // 单人视图：每人一条折线
+    datasets = checkedNames.map(function(name, idx) {
+      var data = _trendData.records.map(function(rec) {
+        var person = (rec.persons || []).find(function(p) { return p.name === name; });
+        if (!person) return null;
+        return person[dataType] || 0;
+      });
+      return {
+        label: name,
+        data: data,
+        borderColor: COLORS[idx % COLORS.length],
+        backgroundColor: COLORS[idx % COLORS.length] + '20',
+        borderWidth: 2,
+        pointRadius: 3,
+        pointHoverRadius: 5,
+        tension: 0.3,
+      spanGaps: true,
+    };
+  });
+  }
+
+  var ctx = document.getElementById('chart-trend-canvas').getContext('2d');
+  _trendChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: dates, datasets: datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', labels: { boxWidth: 12, boxHeight: 12, padding: 16, usePointStyle: true, pointStyle: 'circle', font: { size: 11 } } },
+        tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + ctx.parsed.y + ' BUG'; } } }
+      },
+      scales: {
+        x: { grid: { display: false } },
+        y: { beginAtZero: true, ticks: { stepSize: 1 } }
+      },
+    },
+  });
+}
+
 // ========== 设置页加载 ==========
 function loadConfigPage() {
   try {
@@ -671,17 +951,47 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 });
 
+// 欢迎页按钮 — 跳转到数据下载页
+document.addEventListener('DOMContentLoaded', function() {
+  var welcomeBtn = document.getElementById('btn-welcome-batch');
+  if (welcomeBtn) {
+    welcomeBtn.addEventListener('click', function() {
+      navigateTo('batch');
+    });
+  }
+});
+
 // ========== 初始化 ==========
 document.addEventListener('DOMContentLoaded', async () => {
+  // URL hash 路由：恢复上次页面
+  const hash = (location.hash || '').replace('#', '');
+  const validPages = ['analysis', 'batch', 'settings', 'config'];
+  if (hash && validPages.includes(hash)) {
+    navigateTo(hash);
+  }
+
   await populateProjectSelects();
-  // 打开即看：自动加载上次项目
-  try {
-    const state = await API.get('/analyze/last-state');
-    if (state && state.last_project_id) {
-      document.getElementById('project-select').value = state.last_project_id;
-      await loadAnalysisData(state.last_project_id);
+
+  // 只在数据分析页（或无 hash）时尝试恢复上次项目
+  const currentHash = (location.hash || '').replace('#', '');
+  if (!currentHash || currentHash === 'analysis') {
+    try {
+      const state = await API.get('/analyze/last-state');
+      if (state && state.last_project_id) {
+        // 有历史记录 — 静默恢复，不显示欢迎页
+        document.getElementById('project-select').value = state.last_project_id;
+        await loadAnalysisData(state.last_project_id);
+      } else {
+        // 首次访问，无历史记录 — 显示欢迎页
+        document.getElementById('analysis-welcome').style.display = 'flex';
+        document.getElementById('analysis-empty').style.display = 'none';
+        document.getElementById('analysis-loaded').style.display = 'none';
+      }
+    } catch (e) {
+      // 后端未就绪 — 显示欢迎页
+      document.getElementById('analysis-welcome').style.display = 'flex';
+      document.getElementById('analysis-empty').style.display = 'none';
+      document.getElementById('analysis-loaded').style.display = 'none';
     }
-  } catch (e) {
-    console.log('加载上次状态失败');
   }
 });
