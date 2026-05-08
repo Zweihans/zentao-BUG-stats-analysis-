@@ -157,13 +157,13 @@ async function loadAnalysisData(projectId) {
     _currentPersons = data.persons || [];
     renderPersonList(_currentPersons);
 
-    // 已COC人员激活 BUG 总数
+    // COC人员激活 BUG 总数
     var focusActive = 0;
     _currentPersons.forEach(function(p) {
       if (p.focus) focusActive += (p.active || 0);
     });
     var summaryEl = document.getElementById('focus-active-summary');
-    if (summaryEl) summaryEl.textContent = '已COC人员 · 激活 BUG: ' + focusActive;
+    if (summaryEl) summaryEl.textContent = 'COC人员 · 激活 BUG: ' + focusActive;
 
     // 未COC人员提示 — 每个项目只提醒一次，新导入后有新增人员才提醒
     var unfocused = data.unfocused_persons || [];
@@ -294,7 +294,7 @@ function selectPerson(name, bugs) {
     var p = _currentPersons.find(function(p) { return p.name === name; });
     var activeCount = p ? (p.active || 0) : 0;
     var totalActive = _currentPersons.filter(function(p) { return p.focus; }).reduce(function(s, p) { return s + (p.active || 0); }, 0);
-    footer.innerHTML = '<span>已COC人员 · 激活 BUG: ' + totalActive + '</span>' +
+    footer.innerHTML = '<span>COC人员 · 激活 BUG: ' + totalActive + '</span>' +
       '<span style="margin:0 8px; color:var(--border-lavender);">|</span>' +
       '<span>' + escHtml(name) + ' · 激活 ' + activeCount + '</span>' +
       '<span style="flex:1;"></span>' +
@@ -556,7 +556,9 @@ function renderFocusModalList(query) {
     var p = _focusModalPersons.find(function(x) { return x.name === name; });
     if (p) p.checked = cb.checked;
   });
-  list.innerHTML = _focusModalPersons.map(function(p) {
+  // 已勾选（关注）人员排前面
+  var sorted = _focusModalPersons.slice().sort(function(a, b) { return (b.checked ? 1 : 0) - (a.checked ? 1 : 0); });
+  list.innerHTML = sorted.map(function(p) {
     var hidden = query && p.name.toLowerCase().indexOf(query) === -1;
     return '<label style="display:' + (hidden ? 'none' : 'flex') + '; align-items:center; gap:8px; padding:8px 0; cursor:pointer; font-size:13px; border-bottom:1px solid var(--border-lavender);">' +
       '<input type="checkbox" data-name="' + escHtml(p.name) + '" ' + (p.checked ? 'checked' : '') + ' style="accent-color:var(--near-black);">' +

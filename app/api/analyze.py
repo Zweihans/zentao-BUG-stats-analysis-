@@ -153,7 +153,9 @@ async def analyze_file(data: dict):
         raise HTTPException(404, "文件不存在")
 
     bugs = read_file(file_path)
-    prev_file = find_previous_file(file_path, project_id) if project_id else None
+    project = find_project(project_id) if project_id else None
+    pname = project['name'] if project else project_id
+    prev_file = find_previous_file(file_path, pname) if pname else None
     bugs = mark_new_bugs(bugs, prev_file)
 
     focus_list = load_focus_list(project_id) if project_id else None
@@ -171,11 +173,16 @@ async def compare_data(data: dict):
     if not project_id:
         raise HTTPException(400, "缺少 project_id")
 
-    today_file = find_latest_file(project_id)
+    project = find_project(project_id)
+    if not project:
+        raise HTTPException(404, "项目不存在")
+    pname = project['name']
+
+    today_file = find_latest_file(pname)
     if not today_file:
         raise HTTPException(404, "未找到今日文件")
 
-    prev_file = find_previous_file(today_file, project_id)
+    prev_file = find_previous_file(today_file, pname)
     if not prev_file:
         return {"new_ids": [], "message": "没有历史数据可供对比"}
 

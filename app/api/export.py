@@ -5,8 +5,7 @@ import io
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from app.services.file_reader import read_file
-from app.services.bug_analyzer import analyze
-from app.stores.focus_store import load_focus_list
+from app.stores.project_store import find_project
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -16,18 +15,15 @@ router = APIRouter(tags=["export"])
 @router.get("/export/{project_id}")
 async def export_csv(project_id: str):
     """导出项目 BUG 数据为 CSV"""
-    downloads_dir = os.path.join(BASE_DIR, "downloads")
-    if not os.path.exists(downloads_dir):
-        raise HTTPException(404, "没有可导出的数据")
+    from app.api.analyze import find_latest_file
 
-    # 找最新的 xlsx 文件
-    xlsx_files = [f for f in os.listdir(downloads_dir) if f.endswith('.xlsx')]
-    if not xlsx_files:
-        raise HTTPException(404, "没有可导出的数据文件")
+    project = find_project(project_id)
+    if not project:
+        raise HTTPException(404, "项目不存在")
 
-    # 按修改时间排序，取最新
-    xlsx_files.sort(key=lambda f: os.path.getmtime(os.path.join(downloads_dir, f)), reverse=True)
-    filepath = os.path.join(downloads_dir, xlsx_files[0])
+    filepath = find_latest_file(project['name'])
+    if not filepath:
+        raise HTTPException(404, "没有可导出的数据，请先下载")
 
     bugs = read_file(filepath)
     if not bugs:
