@@ -1,4 +1,5 @@
 """项目管理 API"""
+import uuid
 from fastapi import APIRouter, HTTPException
 from app.stores.project_store import load_projects, save_projects, find_project
 
@@ -17,7 +18,7 @@ async def add_project(data: dict):
     if not name:
         raise HTTPException(400, "项目名称不能为空")
 
-    new_id = str(max([int(p.get('id', '0')) for p in projects if p.get('id', '').isdigit()] or [0]) + 1)
+    new_id = uuid.uuid4().hex[:8]
     project = {
         'name': name,
         'url': data.get('url', ''),

@@ -17,6 +17,10 @@ function navigateTo(pageName) {
   if (pageName === 'settings') loadSettingsPage();
   if (pageName === 'batch') loadBatchPage();
   if (pageName === 'config') loadConfigPage();
+  if (pageName === 'analysis') {
+    var pid = getSelectedProjectId('#project-select');
+    if (pid) loadAnalysisData(pid);
+  }
 }
 
 document.querySelectorAll('.nav-item').forEach(item => {
@@ -51,7 +55,7 @@ function getSelectedProjectId(selector) {
 }
 
 // ========== 数据分析页 ==========
-// 按项目持久化"已提醒过"的未关注人员（sessionStorage：刷新不丢失，关浏览器自动清）
+// 按项目持久化"已提醒过"的未COC人员（sessionStorage：刷新不丢失，关浏览器自动清）
 function _unfocusedSeenKey(projectId) { return 'unfocused_seen_' + projectId; }
 function _getUnfocusedSeen(projectId) {
   try { return JSON.parse(sessionStorage.getItem(_unfocusedSeenKey(projectId)) || '[]'); } catch (e) { return []; }
@@ -83,14 +87,36 @@ document.getElementById('btn-export').addEventListener('click', () => {
   a.click();
 });
 
+var _personFilter = 'all';
+
 document.getElementById('person-search').addEventListener('input', function() {
   filterPersonList(this.value.toLowerCase());
 });
 
+document.addEventListener('click', function(e) {
+  if (e.target.classList.contains('person-filter-tag')) {
+    document.querySelectorAll('.person-filter-tag').forEach(t => t.classList.remove('active'));
+    e.target.classList.add('active');
+    _personFilter = e.target.dataset.pfilter || 'all';
+    var q = document.getElementById('person-search').value.toLowerCase();
+    filterPersonList(q);
+  }
+});
+
 function filterPersonList(query) {
-  document.querySelectorAll('#person-list .person-row').forEach(row => {
-    const name = row.dataset.name || '';
-    row.style.display = name.includes(query) ? '' : 'none';
+  document.querySelectorAll('#person-list .person-row').forEach(function(row) {
+    var name = row.dataset.name || '';
+    var nameMatch = name.includes(query);
+    if (!nameMatch) { row.style.display = 'none'; return; }
+    if (_personFilter === 'all') { row.style.display = ''; return; }
+    var rowBugs = []; try { rowBugs = JSON.parse(row.dataset.bugs || '[]'); } catch(_) {}
+    if (_personFilter === 'active') {
+      row.style.display = rowBugs.some(function(b) { return (b.status || '').indexOf('激活') !== -1; }) ? '' : 'none';
+    } else if (_personFilter === 'hi-sev') {
+      row.style.display = rowBugs.some(function(b) { var s = b.severity || ''; return s === 'S' || s === 'A'; }) ? '' : 'none';
+    } else if (_personFilter === 'many') {
+      row.style.display = rowBugs.length >= 5 ? '' : 'none';
+    }
   });
 }
 
@@ -131,15 +157,15 @@ async function loadAnalysisData(projectId) {
     _currentPersons = data.persons || [];
     renderPersonList(_currentPersons);
 
-    // 已关注人员激活 BUG 总数
+    // 已COC人员激活 BUG 总数
     var focusActive = 0;
     _currentPersons.forEach(function(p) {
       if (p.focus) focusActive += (p.active || 0);
     });
     var summaryEl = document.getElementById('focus-active-summary');
-    if (summaryEl) summaryEl.textContent = '已关注人员 · 激活 BUG: ' + focusActive;
+    if (summaryEl) summaryEl.textContent = '已COC人员 · 激活 BUG: ' + focusActive;
 
-    // 未关注人员提示 — 每个项目只提醒一次，新导入后有新增人员才提醒
+    // 未COC人员提示 — 每个项目只提醒一次，新导入后有新增人员才提醒
     var unfocused = data.unfocused_persons || [];
     var seen = _getUnfocusedSeen(projectId);
     var newUnfocused = unfocused.filter(function(name) {
@@ -160,21 +186,22 @@ async function loadAnalysisData(projectId) {
     }
     const statusEl = document.getElementById('data-status');
     var fileDate = data.file_date || '--';
+    // 数据过期横幅
+    var staleAlert = document.getElementById('stale-alert');
     if (data.stale) {
-      statusEl.innerHTML = '<span class="status-dot amber"></span> 数据更新于 ' + fileDate + ' · <a href="#" style="color:var(--link-cobalt); font-weight:600; text-decoration:none;" id="status-refresh-link">点击刷新</a> <span id="refresh-progress" style="font-size:11px; color:var(--silver);"></span>';
+      staleAlert.style.display = 'flex';
+      document.getElementById('stale-date').textContent = fileDate;
+      statusEl.innerHTML = '<span class="status-dot amber"></span> ' + fileDate + ' · <a href="#" class="status-refresh-link" style="color:var(--link-cobalt); font-weight:600; text-decoration:none;">点击刷新</a> <span id="refresh-progress" style="font-size:11px; color:var(--silver);"></span>';
     } else {
-      statusEl.innerHTML = '<span class="status-dot green"></span> ' + fileDate + ' · <a href="#" style="color:var(--link-cobalt); font-weight:600; text-decoration:none;" id="status-refresh-link">点击刷新</a> <span id="refresh-progress" style="font-size:11px; color:var(--silver);"></span>';
+      staleAlert.style.display = 'none';
+      statusEl.innerHTML = '<span class="status-dot green"></span> ' + fileDate + ' · <a href="#" class="status-refresh-link" style="color:var(--link-cobalt); font-weight:600; text-decoration:none;">点击刷新</a> <span id="refresh-progress" style="font-size:11px; color:var(--silver);"></span>';
     }
     statusEl.style.cursor = 'default';
-    statusEl.onclick = null;
-    document.getElementById('status-refresh-link').addEventListener('click', function(e) {
-      e.preventDefault();
-      refreshCurrentProject();
-    });
   } catch (e) {
     document.getElementById('analysis-empty').style.display = 'flex';
     container.style.display = 'none';
     document.getElementById('unfocused-alert').style.display = 'none';
+    document.getElementById('stale-alert').style.display = 'none';
     document.getElementById('data-status').textContent = '加载失败';
     console.error(e);
   }
@@ -242,7 +269,8 @@ function renderPersonList(persons) {
     row.addEventListener('click', function() {
       list.querySelectorAll('.person-row').forEach(r => r.classList.remove('selected'));
       this.classList.add('selected');
-      selectPerson(this.dataset.name, JSON.parse(this.dataset.bugs || '[]'));
+      var bugs = []; try { bugs = JSON.parse(this.dataset.bugs || '[]'); } catch(_) { bugs = []; }
+      selectPerson(this.dataset.name, bugs);
     });
   });
 }
@@ -260,6 +288,22 @@ function personRowHtml(p) {
 }
 
 function selectPerson(name, bugs) {
+  _selectedPersonName = name;
+  var footer = document.getElementById('focus-active-summary');
+  if (footer) {
+    var p = _currentPersons.find(function(p) { return p.name === name; });
+    var activeCount = p ? (p.active || 0) : 0;
+    var totalActive = _currentPersons.filter(function(p) { return p.focus; }).reduce(function(s, p) { return s + (p.active || 0); }, 0);
+    footer.innerHTML = '<span>已COC人员 · 激活 BUG: ' + totalActive + '</span>' +
+      '<span style="margin:0 8px; color:var(--border-lavender);">|</span>' +
+      '<span>' + escHtml(name) + ' · 激活 ' + activeCount + '</span>' +
+      '<span style="flex:1;"></span>' +
+      '<a href="#" id="btn-urge-single-person" style="font-size:12px; color:var(--link-cobalt); text-decoration:none; font-weight:500;">催办此人</a>';
+    document.getElementById('btn-urge-single-person').addEventListener('click', function(e) {
+      e.preventDefault();
+      openUrgeModal('single');
+    });
+  }
   const tbody = document.getElementById('bug-tbody');
   if (!bugs.length) {
     tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--silver); padding:32px; font-size:13px;">该人员暂无 BUG</td></tr>';
@@ -268,7 +312,7 @@ function selectPerson(name, bugs) {
   tbody.innerHTML = bugs.map(b => {
     const isNew = b.is_new ? ' class="new"' : '';
     const newMark = b.is_new ? ' <span class="badge badge-new" style="font-size:10px;">新增</span>' : '';
-    return '<tr' + isNew + ' data-severity="' + (b.severity || '') + '" data-status="' + (b.status || '') + '">' +
+    return '<tr' + isNew + ' data-id="' + (b.id || '0') + '" data-title="' + (b.title || '').replace(/"/g, '&quot;') + '" data-severity="' + (b.severity || '') + '" data-status="' + (b.status || '') + '">' +
       '<td><a class="bug-id-link" href="https://zd.bicv.com/bug-view-' + b.id + '.html" target="_blank">#' + b.id + '</a></td>' +
       '<td>' + escHtml(b.title || '') + newMark + '</td>' +
       '<td><span class="badge" style="' + severityBadge(b.severity) + '">' + (b.severity || '-') + '</span></td>' +
@@ -276,7 +320,62 @@ function selectPerson(name, bugs) {
       '</tr>';
   }).join('');
   filterBugTable();
+  applySort();
 }
+
+// ========== BUG 表格排序 ==========
+var _sortCol = null;
+var _sortDir = 1; // 1=asc, -1=desc
+
+function sortByCol(rows, col) {
+  var sevMap = { S: 4, A: 3, B: 2, C: 1 };
+  var statusMap = { '激活': 4, '已解决': 3, '已关闭': 2 };
+  return rows.sort(function(a, b) {
+    var va, vb;
+    if (col === 'id') {
+      va = parseInt(a.dataset.id) || 0;
+      vb = parseInt(b.dataset.id) || 0;
+    } else if (col === 'title') {
+      va = (a.dataset.title || '').toLowerCase();
+      vb = (b.dataset.title || '').toLowerCase();
+    } else if (col === 'severity') {
+      va = sevMap[a.dataset.severity] || 0;
+      vb = sevMap[b.dataset.severity] || 0;
+    } else if (col === 'status') {
+      va = statusMap[a.dataset.status] || 0;
+      vb = statusMap[b.dataset.status] || 0;
+    }
+    if (va < vb) return -1 * _sortDir;
+    if (va > vb) return 1 * _sortDir;
+    return 0;
+  });
+}
+
+function applySort() {
+  if (!_sortCol) return;
+  var tbody = document.getElementById('bug-tbody');
+  var rows = Array.from(tbody.querySelectorAll('tr'));
+  if (!rows.length) return;
+  sortByCol(rows, _sortCol);
+  rows.forEach(function(r) { tbody.appendChild(r); });
+}
+
+document.addEventListener('click', function(e) {
+  if (e.target.closest('.sort-th')) {
+    var th = e.target.closest('.sort-th');
+    var col = th.dataset.col;
+    document.querySelectorAll('.sort-th').forEach(function(t) { t.classList.remove('asc', 'desc'); });
+    if (_sortCol === col) {
+      _sortDir = -_sortDir;
+    } else {
+      _sortCol = col;
+      _sortDir = 1;
+    }
+    th.classList.add(_sortDir > 0 ? 'asc' : 'desc');
+    th.querySelector('.sort-arrow').textContent = _sortDir > 0 ? '▲' : '▼';
+    applySort();
+  }
+});
 
 function toggleFold(id) {
   const el = document.getElementById(id);
@@ -335,7 +434,7 @@ function escHtml(str) {
   return div.innerHTML;
 }
 
-// ========== 关注人员管理模态窗口 ==========
+// ========== COC人员管理模态窗口 ==========
 var _focusModalProjectId = null;
 var _focusModalPersons = [];
 var _focusQuickAddMode = false;
@@ -468,7 +567,7 @@ function renderFocusModalList(query) {
 
 function closeFocusModal() {
   document.getElementById('focus-modal').style.display = 'none';
-  document.getElementById('focus-modal-title').textContent = '管理关注人员';
+  document.getElementById('focus-modal-title').textContent = '管理COC人员';
   _focusModalProjectId = null;
   _focusModalPersons = [];
   _focusQuickAddMode = false;
@@ -485,12 +584,139 @@ var _barChart = null;
 var _pieChart = null;
 var _currentPersons = [];
 
+// 自定义数据标签插件，所有图表默认显示数值方便截图
+var dataLabelPlugin = {
+  id: 'dataLabels',
+  afterDatasetsDraw: function(chart) {
+    if (chart.options.plugins && chart.options.plugins.dataLabels === false) return;
+    var ctx = chart.ctx;
+    var type = chart.config.type;
+
+    if (type === 'bar') {
+      // 水平柱状图：在每条堆积柱末端显示总数
+      var datasets = chart.data.datasets;
+      var meta = chart.getDatasetMeta(0);
+      if (!meta || !meta.data) return;
+      meta.data.forEach(function(bar, i) {
+        var total = 0;
+        datasets.forEach(function(ds) { total += (ds.data[i] || 0); });
+        if (total === 0) return;
+        ctx.save();
+        ctx.font = 'bold 11px Inter, -apple-system, sans-serif';
+        ctx.fillStyle = '#1c2024';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(total, bar.x + 6, bar.y);
+        ctx.restore();
+      });
+    } else if (type === 'pie' || type === 'doughnut') {
+      // 环形图：引导线 + 外部文字标签
+      var metaPie = chart.getDatasetMeta(0);
+      if (!metaPie || !metaPie.data) return;
+      var ds = chart.data.datasets[0];
+      var data = ds.data;
+      var sevData = ds.severity || [];
+      var bgColors = ds.backgroundColor;
+      var firstArc = metaPie.data[0];
+      if (!firstArc) return;
+      var outerR = firstArc.outerRadius;
+      // 按角度排序，让标签分布更均匀
+      var indexed = metaPie.data.map(function(arc, i) { return { arc: arc, i: i }; });
+      indexed.sort(function(a, b) {
+        var aAng = (a.arc.startAngle + a.arc.endAngle) / 2;
+        var bAng = (b.arc.startAngle + b.arc.endAngle) / 2;
+        return aAng - bAng;
+      });
+      indexed.forEach(function(item) {
+        var arc = item.arc;
+        var i = item.i;
+        var value = data[i];
+        if (value === 0) return;
+        var label = chart.data.labels[i];
+        var shortName = label.length > 6 ? label.substring(0, 6) + '..' : label;
+        var midAngle = (arc.startAngle + arc.endAngle) / 2;
+        var cosA = Math.cos(midAngle);
+        var sinA = Math.sin(midAngle);
+        var isRight = cosA >= 0;
+        var color = bgColors[i % bgColors.length];
+
+        // 引导线三点
+        var x0 = arc.x + cosA * outerR;
+        var y0 = arc.y + sinA * outerR;
+        var x1 = arc.x + cosA * (outerR + 16);
+        var y1 = arc.y + sinA * (outerR + 16);
+        var x2 = x1 + (isRight ? 26 : -26);
+        var y2 = y1;
+
+        ctx.save();
+        // 引导线
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        // 扇区边缘小圆点
+        ctx.beginPath();
+        ctx.arc(x0, y0, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+
+        // 文字标签
+        var textX = x2 + (isRight ? 5 : -5);
+        var textY = y2;
+        ctx.textAlign = isRight ? 'left' : 'right';
+        ctx.textBaseline = 'middle';
+
+        ctx.font = 'bold 10px Inter, -apple-system, sans-serif';
+        ctx.fillStyle = '#1c2024';
+        ctx.fillText(shortName + ' ' + value, textX, textY - 7);
+
+        if (sevData[i]) {
+          var parts = ['S','A','B','C'].filter(function(s){return sevData[i][s]>0;}).map(function(s){return s+sevData[i][s];});
+          if (parts.length > 0) {
+            ctx.font = '9px Inter, -apple-system, sans-serif';
+            ctx.fillStyle = '#60646c';
+            ctx.fillText(parts.join(' '), textX, textY + 7);
+          }
+        }
+        ctx.restore();
+      });
+    } else if (type === 'line') {
+      // 折线图：每个数据点上方显示数值
+      var metaLine = chart.getDatasetMeta(0);
+      if (!metaLine || !metaLine.data) return;
+      chart.data.datasets.forEach(function(ds, dsIdx) {
+        var metaDs = chart.getDatasetMeta(dsIdx);
+        if (!metaDs || !metaDs.data) return;
+        metaDs.data.forEach(function(point, i) {
+          var val = ds.data[i];
+          if (val === null || val === undefined || val === 0) return;
+          ctx.save();
+          ctx.font = 'bold 11px Inter, -apple-system, sans-serif';
+          ctx.fillStyle = ds.borderColor || '#1c2024';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText(val, point.x, point.y - 6);
+          ctx.restore();
+        });
+      });
+    }
+  }
+};
+
+// 在 Chart 默认全局注册插件（如果 Chart 已加载）
+if (typeof Chart !== 'undefined' && Chart.register) {
+  Chart.register(dataLabelPlugin);
+}
+
 // 柱状图
 document.getElementById('btn-chart-bar').addEventListener('click', function() {
   var pid = getSelectedProjectId('#project-select');
   if (!pid) { alert('请先选择项目'); return; }
   document.getElementById('chart-bar-modal').style.display = 'flex';
-  document.getElementById('chart-bar-filter').value = 'all';
+  document.getElementById('chart-bar-filter').value = 'focus';
   renderBarChart();
 });
 
@@ -509,6 +735,7 @@ document.getElementById('chart-bar-modal').addEventListener('click', function(e)
 document.getElementById('chart-bar-filter').addEventListener('change', renderBarChart);
 
 function getChartData(filter) {
+  if (!_currentPersons || !_currentPersons.length) { alert('请先选择项目并加载数据'); return null; }
   var persons = _currentPersons;
   if (filter === 'focus') persons = persons.filter(function(p) { return p.focus; });
   persons.sort(function(a, b) { return b.total - a.total; });
@@ -530,9 +757,10 @@ function getChartData(filter) {
 function renderBarChart() {
   var filter = document.getElementById('chart-bar-filter').value;
   var data = getChartData(filter);
+  if (!data) return;
   var canvas = document.getElementById('chart-bar-canvas');
   var container = canvas.parentElement;
-  canvas.height = Math.max(300, data.labels.length * 28);
+  canvas.height = Math.max(400, data.labels.length * 30);
   var ctx = canvas.getContext('2d');
   if (_barChart) _barChart.destroy();
 
@@ -572,7 +800,7 @@ document.getElementById('btn-chart-pie').addEventListener('click', function() {
   var pid = getSelectedProjectId('#project-select');
   if (!pid) { alert('请先选择项目'); return; }
   document.getElementById('chart-pie-modal').style.display = 'flex';
-  document.getElementById('chart-pie-filter').value = 'all';
+  document.getElementById('chart-pie-filter').value = 'focus';
   renderPieChart();
 });
 
@@ -591,6 +819,7 @@ document.getElementById('chart-pie-modal').addEventListener('click', function(e)
 document.getElementById('chart-pie-filter').addEventListener('change', renderPieChart);
 
 function renderPieChart() {
+  if (!_currentPersons || !_currentPersons.length) { alert('请先选择项目并加载数据'); return; }
   var filter = document.getElementById('chart-pie-filter').value;
   var persons = _currentPersons;
   if (filter === 'focus') persons = persons.filter(function(p) { return p.focus; });
@@ -601,35 +830,39 @@ function renderPieChart() {
   if (_pieChart) _pieChart.destroy();
 
   var bgColors = [
-    '#1c2024', '#363a3f', '#555860', '#777a82', '#999da4', '#b0b4ba',
-    '#c4c7cc', '#d3d5d9', '#e0e1e6', '#40444a', '#6a6e75', '#898d94',
+    '#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899',
+    '#f97316', '#14b8a6', '#6366f1', '#84cc16', '#d946ef', '#0ea5e9', '#e11d48',
+    '#65a30d', '#0891b2', '#c026d3', '#0284c7', '#a3e635', '#7c3aed',
+    '#ea580c', '#2563eb', '#16a34a', '#db2777', '#ca8a04', '#9333ea',
   ];
 
   _pieChart = new Chart(ctx, {
-    type: 'pie',
+    type: 'doughnut',
     data: {
-      labels: persons.map(function(p) { return p.name; }),
+      labels: persons.map(function(p) { var n = p.name.replace(/[^一-鿿·]/g, ''); return n || p.name; }),
       datasets: [{
         data: persons.map(function(p) { return p.total; }),
-        backgroundColor: bgColors.slice(0, persons.length),
+        backgroundColor: bgColors,
         borderColor: '#fff',
-        borderWidth: 1.5,
+        borderWidth: 2,
+        hoverBorderWidth: 3,
+        severity: persons.map(function(p) { return { S: p.S, A: p.A, B: p.B, C: p.C }; }),
       }],
     },
     options: {
       responsive: true,
-      maintainAspectRatio: true,
+      maintainAspectRatio: false,
+      cutout: '40%',
+      layout: { padding: { top: 70, bottom: 70, left: 140, right: 140 } },
       plugins: {
-        legend: {
-          position: 'bottom',
-          labels: { font: { size: 10 }, padding: 12, color: '#60646c', usePointStyle: true },
-        },
+        legend: { display: false },
         tooltip: {
           callbacks: {
             label: function(ctx) {
               var p = persons[ctx.dataIndex];
+              var n = p.name.replace(/[^一-鿿·]/g, '') || p.name;
               var parts = ['S', 'A', 'B', 'C'].map(function(s) { return p[s] > 0 ? s + ':' + p[s] : null; }).filter(Boolean);
-              return p.name + ' 共 ' + p.total + ' Bug  (' + parts.join(' ') + ')';
+              return n + ' 共 ' + p.total + ' Bug  (' + parts.join(' ') + ')';
             },
           },
         },
@@ -637,11 +870,10 @@ function renderPieChart() {
     },
   });
 
-  // 下方文字列表
-  document.getElementById('chart-pie-labels').innerHTML = persons.map(function(p) {
-    var parts = ['S', 'A', 'B', 'C'].map(function(s) { return p[s] > 0 ? s + ':' + p[s] : null; }).filter(Boolean);
-    return '<div style="padding:2px 0;">' + escHtml(p.name + '  ' + p.total + ' Bug  (' + parts.join(' ') + ')') + '</div>';
-  }).join('');
+  var canvas = document.getElementById('chart-pie-canvas');
+  var cnt = persons.length;
+  canvas.style.height = Math.max(850, cnt * 24) + 'px';
+  canvas.style.width = Math.max(1100, cnt * 26) + 'px';
 }
 
 // ========== 趋势图 ==========
@@ -739,17 +971,25 @@ function updateTrendPersonCheckboxes(filterOverride) {
   });
 
   var focusNames = new Set();
-  if (filter === 'focus' && typeof _currentPersons !== 'undefined') {
+  if (typeof _currentPersons !== 'undefined') {
     _currentPersons.forEach(function(p) {
       if (p.focus) focusNames.add(p.name);
     });
   }
 
   var checkedMap = {};
-  var container = document.getElementById('trend-person-checkboxes');
-  container.querySelectorAll('input[type="checkbox"]').forEach(function(cb) {
-    checkedMap[cb.value] = cb.checked;
-  });
+  // filterOverride 传入时重置勾选（全部→全选，关注→仅关注），搜索时不重置
+  if (filterOverride) {
+    var namesArr = Array.from(allNames);
+    namesArr.forEach(function(name) {
+      checkedMap[name] = filter === 'all' ? true : focusNames.has(name);
+    });
+  } else {
+    var container = document.getElementById('trend-person-checkboxes');
+    container.querySelectorAll('input[type="checkbox"]').forEach(function(cb) {
+      checkedMap[cb.value] = cb.checked;
+    });
+  }
 
   var html = '';
   var names = Array.from(allNames).sort();
@@ -763,7 +1003,17 @@ function updateTrendPersonCheckboxes(filterOverride) {
       '<input type="checkbox" value="' + escHtml(name) + '"' + checked + ' onchange="renderTrendChart()"> ' +
       escHtml(name) + '</label>';
   });
-  container.innerHTML = html;
+  document.getElementById('trend-person-checkboxes').innerHTML = html;
+}
+
+function trendValue(person, type) {
+  if (!person) return 0;
+  if (type === 'rate') {
+    var resolved = (person.resolved || 0) + (person.closed || 0);
+    var total = person.total || 1;
+    return Math.round(resolved / total * 100);
+  }
+  return person[type] || 0;
 }
 
 function renderTrendChart() {
@@ -771,20 +1021,31 @@ function renderTrendChart() {
   if (!_trendData || !_trendData.records || _trendData.records.length === 0) return;
 
   var dataType = document.querySelector('.trend-data-tag.active')?.dataset.trendData || 'total';
+  var isRate = dataType === 'rate';
 
   var checkedNames = [];
   document.querySelectorAll('#trend-person-checkboxes input[type="checkbox"]:checked').forEach(function(cb) {
     checkedNames.push(cb.value);
   });
 
-  // 更新勾选人员 BUG 总量（取最新一条记录的数据）
+  // 更新底部统计文本
   var latestRecord = _trendData.records[_trendData.records.length - 1];
-  var checkedTotal = 0;
+  var checkedTotal = 0; var checkedRate = 0;
   (latestRecord.persons || []).forEach(function(p) {
-    if (checkedNames.indexOf(p.name) !== -1) checkedTotal += (p[dataType] || 0);
+    if (checkedNames.indexOf(p.name) !== -1) {
+      checkedTotal += (p.total || 0);
+      checkedRate += (p.resolved || 0) + (p.closed || 0);
+    }
   });
   var totalEl = document.getElementById('trend-checked-total');
-  if (totalEl) totalEl.textContent = checkedNames.length ? checkedTotal + ' BUG' : '';
+  if (totalEl) {
+    if (isRate) {
+      var ratePct = checkedTotal > 0 ? Math.round(checkedRate / checkedTotal * 100) : 0;
+      totalEl.textContent = checkedNames.length ? ratePct + '%' : '';
+    } else {
+      totalEl.textContent = checkedNames.length ? checkedTotal + ' BUG' : '';
+    }
+  }
 
   if (checkedNames.length === 0) return;
 
@@ -800,13 +1061,18 @@ function renderTrendChart() {
 
   var datasets;
   if (viewMode === 'sum') {
-    // 合计视图：一条聚合折线
     var sumData = _trendData.records.map(function(rec) {
-      var total = 0;
+      var sum = 0; var sumResolved = 0; var sumTotal = 0;
       (rec.persons || []).forEach(function(p) {
-        if (checkedNames.indexOf(p.name) !== -1) total += (p[dataType] || 0);
+        if (checkedNames.indexOf(p.name) !== -1) {
+          sumTotal += (p.total || 0);
+          sumResolved += (p.resolved || 0) + (p.closed || 0);
+          sum += trendValue(p, dataType);
+        }
       });
-      return total;
+      // 合计视图下解决率用总计计算
+      if (isRate) return sumTotal > 0 ? Math.round(sumResolved / sumTotal * 100) : 0;
+      return sum;
     });
     datasets = [{
       label: checkedNames.length + '人合计',
@@ -822,12 +1088,10 @@ function renderTrendChart() {
       spanGaps: true,
     }];
   } else {
-    // 单人视图：每人一条折线
     datasets = checkedNames.map(function(name, idx) {
       var data = _trendData.records.map(function(rec) {
         var person = (rec.persons || []).find(function(p) { return p.name === name; });
-        if (!person) return null;
-        return person[dataType] || 0;
+        return trendValue(person, dataType);
       });
       return {
         label: name,
@@ -838,9 +1102,9 @@ function renderTrendChart() {
         pointRadius: 3,
         pointHoverRadius: 5,
         tension: 0.3,
-      spanGaps: true,
-    };
-  });
+        spanGaps: true,
+      };
+    });
   }
 
   var ctx = document.getElementById('chart-trend-canvas').getContext('2d');
@@ -853,11 +1117,11 @@ function renderTrendChart() {
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { position: 'top', labels: { boxWidth: 12, boxHeight: 12, padding: 16, usePointStyle: true, pointStyle: 'circle', font: { size: 11 } } },
-        tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + ctx.parsed.y + ' BUG'; } } }
+        tooltip: { callbacks: { label: function(ctx) { var suffix = isRate ? '%' : ' BUG'; return ctx.dataset.label + ': ' + ctx.parsed.y + suffix; } } }
       },
       scales: {
         x: { grid: { display: false } },
-        y: { beginAtZero: true, ticks: { stepSize: 1 } }
+        y: { beginAtZero: true, max: isRate ? 100 : undefined, ticks: { stepSize: 1, callback: isRate ? function(v) { return v + '%'; } : undefined } }
       },
     },
   });
@@ -879,6 +1143,14 @@ function loadConfigPage() {
         document.getElementById('config-cookie-result').textContent = '未配置';
         document.getElementById('config-cookie-result').style.color = 'var(--red)';
       }
+    }).catch(function() {});
+    API.get('/config').then(function(data) {
+      var input = document.getElementById('config-expiration');
+      if (input) input.value = data.expiration_hours;
+      var schedEnabled = document.getElementById('config-schedule-enabled');
+      if (schedEnabled) schedEnabled.checked = data.schedule_enabled;
+      var schedHour = document.getElementById('config-schedule-hour');
+      if (schedHour) schedHour.value = data.schedule_hour;
     }).catch(function() {});
   } catch (e) { console.error(e); }
 }
@@ -949,6 +1221,52 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     });
   }
+
+  var expirationSaveBtn = document.getElementById('btn-config-save-expiration');
+  if (expirationSaveBtn) {
+    expirationSaveBtn.addEventListener('click', async function() {
+      var input = document.getElementById('config-expiration');
+      var resultEl = document.getElementById('config-expiration-result');
+      var hours = parseInt(input.value, 10);
+      if (isNaN(hours) || hours < 1 || hours > 720) {
+        resultEl.textContent = '请输入 1-720 之间的整数';
+        resultEl.style.color = 'var(--red)';
+        return;
+      }
+      try {
+        await API.put('/config', { expiration_hours: hours });
+        resultEl.textContent = '已保存 · ' + hours + ' 小时';
+        resultEl.style.color = 'var(--green)';
+      } catch (e) {
+        resultEl.textContent = '保存失败';
+        resultEl.style.color = 'var(--red)';
+      }
+    });
+  }
+
+  var scheduleSaveBtn = document.getElementById('btn-config-save-schedule');
+  if (scheduleSaveBtn) {
+    scheduleSaveBtn.addEventListener('click', async function() {
+      var enabledEl = document.getElementById('config-schedule-enabled');
+      var hourEl = document.getElementById('config-schedule-hour');
+      var resultEl = document.getElementById('config-schedule-result');
+      var enabled = enabledEl ? enabledEl.checked : false;
+      var hour = parseInt(hourEl ? hourEl.value : '9', 10);
+      if (isNaN(hour) || hour < 0 || hour > 23) {
+        resultEl.textContent = '请输入 0-23 之间的小时数';
+        resultEl.style.color = 'var(--red)';
+        return;
+      }
+      try {
+        await API.put('/config', { schedule_enabled: enabled, schedule_hour: hour });
+        resultEl.textContent = enabled ? '已保存 · 每天 ' + hour + ':00 自动下载' : '已关闭定时下载';
+        resultEl.style.color = 'var(--green)';
+      } catch (e) {
+        resultEl.textContent = '保存失败';
+        resultEl.style.color = 'var(--red)';
+      }
+    });
+  }
 });
 
 // 欢迎页按钮 — 跳转到数据下载页
@@ -959,6 +1277,778 @@ document.addEventListener('DOMContentLoaded', function() {
       navigateTo('batch');
     });
   }
+});
+
+// 事件委托：状态栏刷新链接（避免动态元素重复绑定）
+document.addEventListener('click', function(e) {
+  if (e.target.classList.contains('status-refresh-link')) {
+    e.preventDefault();
+    refreshCurrentProject();
+  }
+});
+
+// ========== 邮件报告 ==========
+var _emailTrendChart = null;
+var _emailHTML = '';
+var _emailTrendData = null;
+
+// ========== 一键催办 ==========
+var _selectedPersonName = '';
+var _urgeScope = 'all';
+
+function generateUrgeText(scope) {
+  var projectName = '';
+  var sel = document.getElementById('project-select');
+  if (sel) { var opt = sel.selectedOptions[0]; projectName = opt ? opt.textContent : ''; }
+
+  var targets;
+  if (scope === 'single' && _selectedPersonName) {
+    targets = _currentPersons.filter(function(p) { return p.name === _selectedPersonName && (p.active || 0) > 0; });
+  } else {
+    targets = _currentPersons.filter(function(p) { return p.focus && (p.active || 0) > 0; });
+    targets.sort(function(a, b) { return (b.active || 0) - (a.active || 0); });
+  }
+
+  if (!targets.length) return '没有激活 BUG';
+
+  function isActive(st) {
+    if (!st) return true;
+    var s = st.toLowerCase();
+    return s.indexOf('closed') === -1 && s.indexOf('已关闭') === -1 && s.indexOf('resolved') === -1 && s.indexOf('已解决') === -1;
+  }
+
+  var lines = ['【' + projectName + '】', ''];
+
+  targets.forEach(function(p) {
+    var activeBugs = (p.bugs || []).filter(function(b) { return isActive(b.status); });
+    activeBugs.sort(function(a, b) {
+      var order = { S: 0, A: 1, B: 2, C: 3 };
+      return (order[a.severity] || 9) - (order[b.severity] || 9);
+    });
+
+    var sCount = 0, aCount = 0;
+    activeBugs.forEach(function(b) { if (b.severity === 'S') sCount++; if (b.severity === 'A') aCount++; });
+    var hi = [];
+    if (sCount > 0) hi.push('S级' + sCount + '个');
+    if (aCount > 0) hi.push('A级' + aCount + '个');
+    var hiStr = hi.length ? '，其中' + hi.join('、') : '';
+
+    lines.push('@' + p.name + '：有 ' + activeBugs.length + ' 个激活BUG' + hiStr);
+    activeBugs.forEach(function(b) {
+      var sevTag = '[' + (b.severity || '-') + ']';
+      lines.push('  ' + sevTag + ' #' + b.id + ' ' + (b.title || ''));
+      lines.push('  https://zd.bicv.com/bug-view-' + b.id + '.html');
+    });
+    lines.push('');
+  });
+  return lines.join('\n');
+}
+
+function openUrgeModal(scope) {
+  var pid = getSelectedProjectId('#project-select');
+  if (!pid) { alert('请先选择项目'); return; }
+  if (!_currentPersons || !_currentPersons.length) { alert('请先加载数据'); return; }
+
+  _urgeScope = scope;
+  var titleEl = document.getElementById('urge-modal-title');
+  var btnAll = document.getElementById('btn-urge-scope-all');
+  var btnSingle = document.getElementById('btn-urge-scope-single');
+  var textarea = document.getElementById('urge-text-preview');
+
+  if (scope === 'single' && _selectedPersonName) {
+    titleEl.textContent = '催办 · ' + _selectedPersonName;
+    btnSingle.style.background = 'var(--near-black)';
+    btnSingle.style.color = '#fff';
+    btnSingle.style.borderColor = 'transparent';
+    btnAll.style.background = 'transparent';
+    btnAll.style.color = 'var(--slate)';
+    btnAll.style.borderColor = 'var(--input-border)';
+    btnSingle.textContent = _selectedPersonName;
+  } else {
+    titleEl.textContent = '催办 · 全部关注';
+    btnAll.style.background = 'var(--near-black)';
+    btnAll.style.color = '#fff';
+    btnAll.style.borderColor = 'transparent';
+    btnSingle.style.background = 'transparent';
+    btnSingle.style.color = 'var(--slate)';
+    btnSingle.style.borderColor = 'var(--input-border)';
+    btnSingle.textContent = _selectedPersonName ? '仅 ' + _selectedPersonName : '当前人员';
+  }
+
+  textarea.value = generateUrgeText(scope);
+  document.getElementById('urge-modal').style.display = 'flex';
+}
+
+document.getElementById('btn-urge-reminder').addEventListener('click', function() {
+  openUrgeModal('all');
+});
+
+document.getElementById('btn-urge-modal-close').addEventListener('click', function() {
+  document.getElementById('urge-modal').style.display = 'none';
+});
+document.getElementById('btn-urge-modal-close2').addEventListener('click', function() {
+  document.getElementById('urge-modal').style.display = 'none';
+});
+document.getElementById('urge-modal').addEventListener('click', function(e) {
+  if (e.target === this) document.getElementById('urge-modal').style.display = 'none';
+});
+
+document.getElementById('btn-urge-scope-all').addEventListener('click', function() {
+  openUrgeModal('all');
+});
+document.getElementById('btn-urge-scope-single').addEventListener('click', function() {
+  if (!_selectedPersonName) { alert('请先在左侧选择人员'); return; }
+  openUrgeModal('single');
+});
+
+document.getElementById('btn-urge-copy').addEventListener('click', function() {
+  var text = document.getElementById('urge-text-preview').value;
+  var btn = this;
+  var orig = btn.textContent;
+  navigator.clipboard.writeText(text).then(function() {
+    btn.textContent = '已复制';
+    setTimeout(function() { btn.textContent = orig; }, 2000);
+  }).catch(function() {
+    prompt('请手动复制（Ctrl+C）：', text);
+    btn.textContent = orig;
+  });
+});
+
+document.getElementById('btn-email-report').addEventListener('click', async function() {
+  var pid = getSelectedProjectId('#project-select');
+  if (!pid) { alert('请先选择项目'); return; }
+  if (!_currentPersons || !_currentPersons.length) { alert('请先加载数据'); return; }
+
+  document.getElementById('email-report-modal').style.display = 'flex';
+  switchEmailTab('html');
+
+  try { _emailTrendData = await API.trend.get(pid); } catch(e) { _emailTrendData = null; }
+  _emailHTML = generateEmailHTML(pid);
+  document.getElementById('email-html-preview').innerHTML = _emailHTML;
+});
+
+function switchEmailTab(tab) {
+  document.querySelectorAll('.email-tab-btn').forEach(function(b) { b.classList.remove('active'); });
+  var btn = document.querySelector('.email-tab-btn[data-email-tab="' + tab + '"]');
+  if (btn) btn.classList.add('active');
+  document.querySelectorAll('.email-tab-content').forEach(function(c) { c.style.display = 'none'; });
+  var content = document.getElementById('email-tab-' + tab);
+  if (content) content.style.display = 'flex';
+
+  if (tab === 'trend') setTimeout(renderEmailTrendChart, 100);
+}
+
+document.addEventListener('click', function(e) {
+  if (!e.target.classList.contains('email-tab-btn')) return;
+  switchEmailTab(e.target.dataset.emailTab);
+});
+
+document.getElementById('btn-email-modal-close').addEventListener('click', closeEmailModal);
+document.getElementById('email-report-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeEmailModal();
+});
+
+function closeEmailModal() {
+  document.getElementById('email-report-modal').style.display = 'none';
+  if (_emailTrendChart) { _emailTrendChart.destroy(); _emailTrendChart = null; }
+  _emailTrendData = null;
+}
+
+// ========== 复制 HTML 到剪贴板 ==========
+document.getElementById('btn-copy-email-html').addEventListener('click', async function() {
+  var btn = this;
+  var origText = btn.textContent;
+  try {
+    var plainText = _emailHTML.replace(/<[^>]*>/g, '\n').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/\n{3,}/g, '\n\n').trim();
+    var blobHTML = new Blob([_emailHTML], { type: 'text/html' });
+    var blobText = new Blob([plainText], { type: 'text/plain' });
+    await navigator.clipboard.write([new ClipboardItem({
+      'text/html': blobHTML,
+      'text/plain': blobText
+    })]);
+    btn.textContent = '已复制';
+  } catch (e) {
+    // 降级为纯文本
+    try {
+      var txt = _emailHTML.replace(/<[^>]*>/g, '\n').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/\n{3,}/g, '\n\n').trim();
+      await navigator.clipboard.writeText(txt);
+      btn.textContent = '已复制';
+    } catch (e2) {
+      btn.textContent = '失败';
+    }
+  }
+  setTimeout(function() { btn.textContent = origText; }, 2000);
+});
+
+// ========== 邮件 HTML 生成 ==========
+function generateEmailHTML(projectId) {
+  var projectName = '';
+  var sel = document.getElementById('project-select');
+  if (sel) {
+    var opt = sel.selectedOptions[0];
+    projectName = opt ? opt.textContent : '';
+  }
+
+  var focusPersons = _currentPersons.filter(function(p) { return p.focus; });
+  // 有激活BUG的排在前面（按激活数降序），0激活的排在最后
+  focusPersons.sort(function(a, b) {
+    var aActive = a.active || 0;
+    var bActive = b.active || 0;
+    if (aActive > 0 && bActive === 0) return -1;
+    if (aActive === 0 && bActive > 0) return 1;
+    return bActive - aActive;
+  });
+
+  // 环比数据
+  var prevMap = {};
+  if (_emailTrendData && _emailTrendData.records && _emailTrendData.records.length >= 2) {
+    var prevRecord = _emailTrendData.records[_emailTrendData.records.length - 2];
+    (prevRecord.persons || []).forEach(function(p) { prevMap[p.name] = p.active || 0; });
+  }
+
+  var totalActive = 0;
+  var totalS = 0;
+  var totalA = 0;
+  var totalNew = 0;
+  focusPersons.forEach(function(p) {
+    totalActive += p.active || 0;
+    totalS += p.S || 0;
+    totalA += p.A || 0;
+    totalNew += p.new_count || 0;
+  });
+  // 激活环比变化（基于趋势数据最后两条记录）
+  var activeDelta = null;
+  if (_emailTrendData && _emailTrendData.records && _emailTrendData.records.length >= 2) {
+    var prevRecord = _emailTrendData.records[_emailTrendData.records.length - 2];
+    var prevActiveTotal = 0;
+    (prevRecord.persons || []).forEach(function(p) {
+      if (focusPersons.some(function(fp) { return fp.name === p.name; })) prevActiveTotal += (p.active || 0);
+    });
+    activeDelta = totalActive - prevActiveTotal;
+  }
+
+  var maxActive = 0;
+  focusPersons.forEach(function(p) { if (p.active > maxActive) maxActive = p.active; });
+
+  // 高危 BUG 列表
+  var hiBugs = [];
+  focusPersons.forEach(function(p) {
+    (p.bugs || []).forEach(function(b) {
+      var sev = b.severity || '';
+      var st = b.status || '';
+      if ((sev === 'S' || sev === 'A') && st.indexOf('关闭') === -1 && st.indexOf('closed') === -1) {
+        hiBugs.push({ name: p.name, id: b.id, title: b.title, severity: sev, isNew: b.is_new });
+      }
+    });
+  });
+    var dateStr = new Date().toISOString().slice(0, 10);
+
+  var html = '<div style="max-width:600px;font-family:-apple-system,BlinkMacSystemFont,\'Microsoft YaHei\',\'PingFang SC\',sans-serif;color:#1c2024;line-height:1.6;">';
+
+  // 标题栏
+  html += '<table style="width:100%;border-collapse:collapse;margin-bottom:20px;" cellpadding="0" cellspacing="0" border="0"><tr>';
+  html += '<td style="padding:16px 0 12px 0;border-bottom:3px solid #1e40af;">';
+  html += '<div style="font-size:20px;font-weight:700;color:#1e40af;letter-spacing:-0.3px;">' + escHtml(projectName) + '</div>';
+  html += '<div style="font-size:12px;color:#4b5563;margin-top:2px;">BUG 报告 &middot; ' + dateStr + '</div>';
+  html += '</td></tr></table>';
+
+  // 总览卡片
+  var totalB = focusPersons.reduce(function(s,p){return s+(p.B||0);},0);
+  var totalC = focusPersons.reduce(function(s,p){return s+(p.C||0);},0);
+  var deltaNum = activeDelta !== null ? activeDelta : 0;
+  var hasDelta = activeDelta !== null;
+  var deltaAbs = Math.abs(deltaNum);
+  var deltaSign = hasDelta ? (deltaNum >= 0 ? '+' : '-') : '';
+  var deltaColor = !hasDelta ? '#4b5563' : (deltaNum > 0 ? '#d93025' : (deltaNum < 0 ? '#16a34a' : '#4b5563'));
+
+  html += '<table style="width:100%;border-collapse:collapse;margin-bottom:24px;background:#f8fafc;border-left:3px solid #1e40af;" cellpadding="0" cellspacing="0" border="0">';
+
+  // 第一行：关键指标
+  html += '<tr>';
+  html += '<td style="width:50%;padding:18px 14px 8px 14px;text-align:center;">';
+  html += '<div style="font-size:10px;color:#4b5563;letter-spacing:1px;margin-bottom:2px;">激活 BUG</div>';
+  html += '<div style="font-size:28px;font-weight:700;color:#1e40af;line-height:1;">' + totalActive + '</div>';
+  html += '</td>';
+  html += '<td style="width:50%;padding:18px 14px 8px 14px;text-align:center;">';
+  html += '<div style="font-size:10px;color:#4b5563;letter-spacing:1px;margin-bottom:2px;">较上期</div>';
+  html += '<div style="font-size:28px;font-weight:700;color:' + deltaColor + ';line-height:1;">' + (hasDelta ? deltaSign + deltaAbs : '-') + '</div>';
+  html += '</td>';
+  html += '</tr>';
+
+  // 第二行：严重级别分布
+  html += '<tr>';
+  html += '<td colspan="3" style="padding:4px 14px 14px 14px;text-align:center;">';
+  html += '<span style="display:inline-block;min-width:40px;height:22px;line-height:22px;background:#1e40af;color:#fff;border-radius:3px;font-size:11px;font-weight:600;margin:0 4px;">S ' + totalS + '</span>';
+  html += '<span style="display:inline-block;min-width:40px;height:22px;line-height:22px;background:#3b82f6;color:#fff;border-radius:3px;font-size:11px;font-weight:600;margin:0 4px;">A ' + totalA + '</span>';
+  html += '<span style="display:inline-block;min-width:40px;height:22px;line-height:22px;background:#64748b;color:#fff;border-radius:3px;font-size:11px;font-weight:600;margin:0 4px;">B ' + totalB + '</span>';
+  html += '<span style="display:inline-block;min-width:40px;height:22px;line-height:22px;background:#6b7280;color:#fff;border-radius:3px;font-size:11px;font-weight:600;margin:0 4px;">C ' + totalC + '</span>';
+  html += '</td>';
+  html += '</tr>';
+
+  html += '</table>';
+
+  // 人员表格
+  html += '<table style="width:100%;border-collapse:collapse;margin-bottom:24px;font-size:13px;" cellpadding="0" cellspacing="0" border="0">';
+  html += '<thead><tr style="border-bottom:2px solid #1e40af;">';
+  html += '<th style="text-align:left;padding:8px 10px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;text-transform:uppercase;">人员</th>';
+  html += '<th style="text-align:center;padding:8px 4px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;text-transform:uppercase;width:42px;">激活</th>';
+  html += '<th style="text-align:center;padding:8px 4px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;text-transform:uppercase;width:42px;">变化</th>';
+  html += '<th style="text-align:center;padding:8px 4px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;text-transform:uppercase;width:38px;">S</th>';
+  html += '<th style="text-align:center;padding:8px 4px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;text-transform:uppercase;width:38px;">A</th>';
+  html += '<th style="text-align:center;padding:8px 4px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;text-transform:uppercase;width:38px;">B</th>';
+  html += '<th style="text-align:center;padding:8px 4px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;text-transform:uppercase;width:38px;">C</th>';
+  html += '</tr></thead><tbody>';
+
+  focusPersons.forEach(function(p, idx) {
+    var prevActive = prevMap[p.name];
+    var delta = prevActive !== undefined ? (p.active || 0) - prevActive : null;
+    var deltaStr = '-';
+    var deltaColor = '#6b7280';
+    if (delta !== null) {
+      if (delta > 0) { deltaStr = '+' + delta; deltaColor = '#d93025'; }
+      else if (delta < 0) { deltaStr = '' + delta; deltaColor = '#16a34a'; }
+      else { deltaStr = '0'; deltaColor = '#6b7280'; }
+    }
+    var barPct = maxActive > 0 ? Math.round((p.active || 0) / maxActive * 100) : 0;
+    var rowBg = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
+
+    html += '<tr style="background:' + rowBg + ';">';
+    html += '<td style="padding:9px 10px;font-weight:600;font-size:13px;border-bottom:1px solid #eef0f2;">' + escHtml(p.name) + '</td>';
+    html += '<td style="text-align:center;padding:9px 4px;font-weight:600;font-size:13px;border-bottom:1px solid #eef0f2;">' + (p.active || 0) + '</td>';
+    html += '<td style="text-align:center;padding:9px 4px;font-size:11px;font-weight:500;color:' + deltaColor + ';border-bottom:1px solid #eef0f2;">' + deltaStr + '</td>';
+    html += '<td style="text-align:center;padding:9px 4px;border-bottom:1px solid #eef0f2;"><span style="display:inline-block;min-width:22px;height:20px;line-height:20px;background:#1e40af;color:#fff;border-radius:3px;font-size:11px;font-weight:600;">' + (p.S || 0) + '</span></td>';
+    html += '<td style="text-align:center;padding:9px 4px;border-bottom:1px solid #eef0f2;"><span style="display:inline-block;min-width:22px;height:20px;line-height:20px;background:#3b82f6;color:#fff;border-radius:3px;font-size:11px;font-weight:600;">' + (p.A || 0) + '</span></td>';
+    html += '<td style="text-align:center;padding:9px 4px;border-bottom:1px solid #eef0f2;"><span style="display:inline-block;min-width:22px;height:20px;line-height:20px;background:#64748b;color:#fff;border-radius:3px;font-size:11px;font-weight:600;">' + (p.B || 0) + '</span></td>';
+    html += '<td style="text-align:center;padding:9px 4px;border-bottom:1px solid #eef0f2;"><span style="display:inline-block;min-width:22px;height:20px;line-height:20px;background:#6b7280;color:#fff;border-radius:3px;font-size:11px;font-weight:600;">' + (p.C || 0) + '</span></td>';
+    html += '</tr>';
+    html += '<tr style="background:' + rowBg + ';"><td colspan="7" style="padding:0 10px 6px 10px;border-bottom:1px solid #eef0f2;">';
+    html += '<div style="height:3px;background:#eef0f2;border-radius:0 2px 2px 0;">';
+    html += '<div style="height:100%;width:' + barPct + '%;background:#2563eb;border-radius:0 2px 2px 0;min-width:' + (barPct > 0 ? '2px' : '0') + ';"></div>';
+    html += '</div></td></tr>';
+  });
+  html += '</tbody></table>';
+
+  // 高危 BUG 清单
+  if (hiBugs.length > 0) {
+    html += '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;" cellpadding="0" cellspacing="0" border="0">';
+    html += '<tr><td style="padding:10px 14px;background:#eff6ff;border-left:3px solid #1e40af;">';
+    html += '<span style="font-size:13px;font-weight:700;color:#1e40af;">高危 BUG</span>';
+    html += '<span style="font-size:11px;color:#64748b;margin-left:6px;">S / A 级未关闭 &middot; ' + hiBugs.length + ' 个</span>';
+    html += '</td></tr></table>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:24px;" cellpadding="0" cellspacing="0" border="0">';
+    hiBugs.forEach(function(b, idx) {
+      var sevBg = b.severity === 'S' ? '#eff6ff' : '#f8fafc';
+      var sevColor = b.severity === 'S' ? '#1e40af' : '#3b82f6';
+      var newBadge = b.isNew ? ' <span style="display:inline-block;background:#dbeafe;color:#1e40af;font-size:9px;font-weight:600;padding:0 5px;border-radius:2px;line-height:16px;margin-left:4px;">NEW</span>' : '';
+      html += '<tr style="background:' + sevBg + ';">';
+      html += '<td style="padding:7px 10px;border-bottom:1px solid #e0e7ff;white-space:nowrap;width:80px;">';
+      html += '<a href="https://zd.bicv.com/bug-view-' + b.id + '.html" style="color:#2563eb;text-decoration:none;font-weight:500;font-size:12px;" target="_blank">#' + b.id + '</a>';
+      html += '</td>';
+      html += '<td style="padding:7px 8px;border-bottom:1px solid #e0e7ff;font-size:12px;">' + escHtml(b.title) + newBadge + '</td>';
+      html += '<td style="padding:7px 8px;border-bottom:1px solid #e0e7ff;text-align:center;width:40px;">';
+      html += '<span style="display:inline-block;width:20px;height:20px;line-height:20px;background:' + sevColor + ';color:#fff;border-radius:3px;font-size:11px;font-weight:600;">' + b.severity + '</span>';
+      html += '</td>';
+      html += '<td style="padding:7px 10px;border-bottom:1px solid #e0e7ff;font-size:12px;color:#64748b;width:60px;white-space:nowrap;">' + escHtml(b.name) + '</td>';
+      html += '</tr>';
+    });
+    html += '</table>';
+  }
+
+  // 脚注
+  html += '<table style="width:100%;border-collapse:collapse;" cellpadding="0" cellspacing="0" border="0"><tr>';
+  html += '<td style="padding-top:12px;border-top:1px solid #e5e7eb;font-size:10px;color:#6b7280;">';
+  html += '禅道 BUG 分析 &middot; COC人员 &middot; ' + dateStr;
+  html += '</td></tr></table>';
+
+  html += '</div>';
+  return html;
+}
+
+// ========== 周报 ==========
+var _weeklyHTML = '';
+
+document.getElementById('btn-weekly-report').addEventListener('click', async function() {
+  var pid = getSelectedProjectId('#project-select');
+  if (!pid) { alert('请先选择项目'); return; }
+  if (!_currentPersons || !_currentPersons.length) { alert('请先加载数据'); return; }
+
+  document.getElementById('weekly-report-modal').style.display = 'flex';
+
+  try { _emailTrendData = await API.trend.get(pid); } catch(e) { _emailTrendData = null; }
+  var newIds = [];
+  try { var cmp = await API.analyze.compare(pid); newIds = cmp.new_ids || []; } catch(e) {}
+  _weeklyHTML = generateWeeklyHTML(pid, newIds);
+  document.getElementById('weekly-html-preview').innerHTML = _weeklyHTML;
+});
+
+document.getElementById('btn-weekly-modal-close').addEventListener('click', closeWeeklyModal);
+document.getElementById('weekly-report-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeWeeklyModal();
+});
+
+function closeWeeklyModal() {
+  document.getElementById('weekly-report-modal').style.display = 'none';
+  _weeklyHTML = '';
+}
+
+function generateWeeklyHTML(projectId, newBugIds) {
+  var projectName = '';
+  var sel = document.getElementById('project-select');
+  if (sel) { var opt = sel.selectedOptions[0]; projectName = opt ? opt.textContent : ''; }
+
+  var focusPersons = _currentPersons.filter(function(p) { return p.focus; });
+  focusPersons.sort(function(a, b) {
+    var aA = a.active || 0; var bA = b.active || 0;
+    if (aA > 0 && bA === 0) return -1;
+    if (aA === 0 && bA > 0) return 1;
+    return bA - aA;
+  });
+
+  // 日期范围
+  var startDate = '', endDate = new Date().toISOString().slice(0, 10);
+  if (_emailTrendData && _emailTrendData.records && _emailTrendData.records.length > 0) {
+    var recent = _emailTrendData.records.slice(-7);
+    startDate = recent[0].date;
+    endDate = recent[recent.length - 1].date;
+  }
+
+  // 本周新增 BUG 列表
+  var newBugSet = new Set(newBugIds || []);
+  var newBugs = [];
+  focusPersons.forEach(function(p) {
+    (p.bugs || []).forEach(function(b) {
+      if (newBugSet.has(String(b.id))) newBugs.push({ name: p.name, id: b.id, title: b.title, severity: b.severity });
+    });
+  });
+
+  // 环比数据（最后两条趋势记录对比）
+  var prevMap = {};
+  var activeDelta = null;
+  if (_emailTrendData && _emailTrendData.records && _emailTrendData.records.length >= 2) {
+    var prevRecord = _emailTrendData.records[_emailTrendData.records.length - 2];
+    (prevRecord.persons || []).forEach(function(p) { prevMap[p.name] = p.active || 0; });
+    var prevActiveTotal = 0;
+    (prevRecord.persons || []).forEach(function(p) {
+      if (focusPersons.some(function(fp) { return fp.name === p.name; })) prevActiveTotal += (p.active || 0);
+    });
+    var curActiveTotal = focusPersons.reduce(function(s, p) { return s + (p.active || 0); }, 0);
+    activeDelta = curActiveTotal - prevActiveTotal;
+  }
+
+  var totalActive = focusPersons.reduce(function(s, p) { return s + (p.active || 0); }, 0);
+  var totalS = focusPersons.reduce(function(s, p) { return s + (p.S || 0); }, 0);
+  var totalA = focusPersons.reduce(function(s, p) { return s + (p.A || 0); }, 0);
+  var totalB = focusPersons.reduce(function(s, p) { return s + (p.B || 0); }, 0);
+  var totalC = focusPersons.reduce(function(s, p) { return s + (p.C || 0); }, 0);
+  var maxActive = 0;
+  focusPersons.forEach(function(p) { if ((p.active || 0) > maxActive) maxActive = p.active || 0; });
+
+  var html = '<div style="max-width:600px;font-family:-apple-system,BlinkMacSystemFont,\'Microsoft YaHei\',\'PingFang SC\',sans-serif;color:#1c2024;line-height:1.6;">';
+
+  // 标题栏
+  html += '<table style="width:100%;border-collapse:collapse;margin-bottom:20px;" cellpadding="0" cellspacing="0" border="0"><tr>';
+  html += '<td style="padding:16px 0 12px 0;border-bottom:3px solid #1e40af;">';
+  html += '<div style="font-size:20px;font-weight:700;color:#1e40af;letter-spacing:-0.3px;">' + escHtml(projectName) + '</div>';
+  html += '<div style="font-size:12px;color:#4b5563;margin-top:2px;">周报 &middot; ' + startDate + ' ~ ' + endDate + '</div>';
+  html += '</td></tr></table>';
+
+  // 总览卡片
+  var deltaNum = activeDelta !== null ? activeDelta : 0;
+  var hasDelta = activeDelta !== null;
+  var deltaAbs = Math.abs(deltaNum);
+  var deltaSign = hasDelta ? (deltaNum >= 0 ? '+' : '-') : '';
+  var deltaColor = !hasDelta ? '#4b5563' : (deltaNum > 0 ? '#d93025' : (deltaNum < 0 ? '#16a34a' : '#4b5563'));
+
+  html += '<table style="width:100%;border-collapse:collapse;margin-bottom:24px;background:#f8fafc;border-left:3px solid #1e40af;" cellpadding="0" cellspacing="0" border="0">';
+  html += '<tr>';
+  html += '<td style="width:33%;padding:18px 14px 8px 14px;text-align:center;">';
+  html += '<div style="font-size:10px;color:#4b5563;letter-spacing:1px;margin-bottom:2px;">激活 BUG</div>';
+  html += '<div style="font-size:28px;font-weight:700;color:#1e40af;line-height:1;">' + totalActive + '</div>';
+  html += '</td>';
+  html += '<td style="width:33%;padding:18px 14px 8px 14px;text-align:center;">';
+  html += '<div style="font-size:10px;color:#4b5563;letter-spacing:1px;margin-bottom:2px;">本周新增</div>';
+  html += '<div style="font-size:28px;font-weight:700;color:#3b82f6;line-height:1;">' + (newBugs.length || 0) + '</div>';
+  html += '</td>';
+  html += '<td style="width:33%;padding:18px 14px 8px 14px;text-align:center;">';
+  html += '<div style="font-size:10px;color:#4b5563;letter-spacing:1px;margin-bottom:2px;">较上期</div>';
+  html += '<div style="font-size:28px;font-weight:700;color:' + deltaColor + ';line-height:1;">' + (hasDelta ? deltaSign + deltaAbs : '-') + '</div>';
+  html += '</td>';
+  html += '</tr>';
+  html += '<tr>';
+  html += '<td colspan="3" style="padding:4px 14px 14px 14px;text-align:center;">';
+  html += '<span style="display:inline-block;min-width:40px;height:22px;line-height:22px;background:#1e40af;color:#fff;border-radius:3px;font-size:11px;font-weight:600;margin:0 4px;">S ' + totalS + '</span>';
+  html += '<span style="display:inline-block;min-width:40px;height:22px;line-height:22px;background:#3b82f6;color:#fff;border-radius:3px;font-size:11px;font-weight:600;margin:0 4px;">A ' + totalA + '</span>';
+  html += '<span style="display:inline-block;min-width:40px;height:22px;line-height:22px;background:#64748b;color:#fff;border-radius:3px;font-size:11px;font-weight:600;margin:0 4px;">B ' + totalB + '</span>';
+  html += '<span style="display:inline-block;min-width:40px;height:22px;line-height:22px;background:#6b7280;color:#fff;border-radius:3px;font-size:11px;font-weight:600;margin:0 4px;">C ' + totalC + '</span>';
+  html += '</td></tr></table>';
+
+  // 人员表格
+  html += '<table style="width:100%;border-collapse:collapse;margin-bottom:24px;font-size:13px;" cellpadding="0" cellspacing="0" border="0">';
+  html += '<thead><tr style="border-bottom:2px solid #1e40af;">';
+  html += '<th style="text-align:left;padding:8px 10px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;">人员</th>';
+  html += '<th style="text-align:center;padding:8px 4px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;width:42px;">激活</th>';
+  html += '<th style="text-align:center;padding:8px 4px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;width:42px;">变化</th>';
+  html += '<th style="text-align:center;padding:8px 4px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;width:38px;">S</th>';
+  html += '<th style="text-align:center;padding:8px 4px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;width:38px;">A</th>';
+  html += '<th style="text-align:center;padding:8px 4px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;width:38px;">B</th>';
+  html += '<th style="text-align:center;padding:8px 4px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;width:38px;">C</th>';
+  html += '</tr></thead><tbody>';
+
+  focusPersons.forEach(function(p, idx) {
+    var prevActive = prevMap[p.name];
+    var delta = prevActive !== undefined ? (p.active || 0) - prevActive : null;
+    var deltaStr = '-';
+    var pdColor = '#6b7280';
+    if (delta !== null) {
+      if (delta > 0) { deltaStr = '+' + delta; pdColor = '#d93025'; }
+      else if (delta < 0) { deltaStr = '' + delta; pdColor = '#16a34a'; }
+      else { deltaStr = '0'; pdColor = '#6b7280'; }
+    }
+    var barPct = maxActive > 0 ? Math.round((p.active || 0) / maxActive * 100) : 0;
+    var rowBg = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
+
+    html += '<tr style="background:' + rowBg + ';">';
+    html += '<td style="padding:9px 10px;font-weight:600;font-size:13px;border-bottom:1px solid #eef0f2;">' + escHtml(p.name) + '</td>';
+    html += '<td style="text-align:center;padding:9px 4px;font-weight:600;font-size:13px;border-bottom:1px solid #eef0f2;">' + (p.active || 0) + '</td>';
+    html += '<td style="text-align:center;padding:9px 4px;font-size:11px;font-weight:500;color:' + pdColor + ';border-bottom:1px solid #eef0f2;">' + deltaStr + '</td>';
+    html += '<td style="text-align:center;padding:9px 4px;border-bottom:1px solid #eef0f2;"><span style="display:inline-block;min-width:22px;height:20px;line-height:20px;background:#1e40af;color:#fff;border-radius:3px;font-size:11px;font-weight:600;">' + (p.S || 0) + '</span></td>';
+    html += '<td style="text-align:center;padding:9px 4px;border-bottom:1px solid #eef0f2;"><span style="display:inline-block;min-width:22px;height:20px;line-height:20px;background:#3b82f6;color:#fff;border-radius:3px;font-size:11px;font-weight:600;">' + (p.A || 0) + '</span></td>';
+    html += '<td style="text-align:center;padding:9px 4px;border-bottom:1px solid #eef0f2;"><span style="display:inline-block;min-width:22px;height:20px;line-height:20px;background:#64748b;color:#fff;border-radius:3px;font-size:11px;font-weight:600;">' + (p.B || 0) + '</span></td>';
+    html += '<td style="text-align:center;padding:9px 4px;border-bottom:1px solid #eef0f2;"><span style="display:inline-block;min-width:22px;height:20px;line-height:20px;background:#6b7280;color:#fff;border-radius:3px;font-size:11px;font-weight:600;">' + (p.C || 0) + '</span></td>';
+    html += '</tr>';
+    html += '<tr style="background:' + rowBg + ';"><td colspan="7" style="padding:0 10px 6px 10px;border-bottom:1px solid #eef0f2;">';
+    html += '<div style="height:3px;background:#eef0f2;border-radius:0 2px 2px 0;">';
+    html += '<div style="height:100%;width:' + barPct + '%;background:#2563eb;border-radius:0 2px 2px 0;min-width:' + (barPct > 0 ? '2px' : '0') + ';"></div>';
+    html += '</div></td></tr>';
+  });
+  html += '</tbody></table>';
+
+  // 本周新增 BUG 清单
+  if (newBugs.length > 0) {
+    html += '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;" cellpadding="0" cellspacing="0" border="0">';
+    html += '<tr><td style="padding:10px 14px;background:#eff6ff;border-left:3px solid #1e40af;">';
+    html += '<span style="font-size:13px;font-weight:700;color:#1e40af;">本周新增 BUG</span>';
+    html += '<span style="font-size:11px;color:#64748b;margin-left:6px;">' + newBugs.length + ' 个</span>';
+    html += '</td></tr></table>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:24px;" cellpadding="0" cellspacing="0" border="0">';
+    newBugs.forEach(function(b, idx) {
+      var sevColor = b.severity === 'S' ? '#1e40af' : (b.severity === 'A' ? '#3b82f6' : (b.severity === 'B' ? '#64748b' : '#6b7280'));
+      var rowBg = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
+      html += '<tr style="background:' + rowBg + ';">';
+      html += '<td style="padding:7px 10px;border-bottom:1px solid #eef0f2;width:80px;">';
+      html += '<a href="https://zd.bicv.com/bug-view-' + b.id + '.html" style="color:#2563eb;text-decoration:none;font-weight:500;font-size:12px;" target="_blank">#' + b.id + '</a>';
+      html += '</td>';
+      html += '<td style="padding:7px 8px;border-bottom:1px solid #eef0f2;font-size:12px;">' + escHtml(b.title) + '</td>';
+      html += '<td style="padding:7px 8px;border-bottom:1px solid #eef0f2;text-align:center;width:40px;">';
+      html += '<span style="display:inline-block;width:20px;height:20px;line-height:20px;background:' + sevColor + ';color:#fff;border-radius:3px;font-size:11px;font-weight:600;">' + b.severity + '</span>';
+      html += '</td>';
+      html += '<td style="padding:7px 10px;border-bottom:1px solid #eef0f2;font-size:12px;color:#64748b;width:60px;">' + escHtml(b.name) + '</td>';
+      html += '</tr>';
+    });
+    html += '</table>';
+  }
+
+  // 高危 BUG 清单
+  var hiBugs = [];
+  focusPersons.forEach(function(p) {
+    (p.bugs || []).forEach(function(b) {
+      var sev = b.severity || '';
+      var st = b.status || '';
+      if ((sev === 'S' || sev === 'A') && st.indexOf('关闭') === -1 && st.indexOf('closed') === -1 && st.indexOf('已解决') === -1 && st.indexOf('resolved') === -1) {
+        hiBugs.push({ name: p.name, id: b.id, title: b.title, severity: sev, isNew: newBugSet.has(String(b.id)) });
+      }
+    });
+  });
+  if (hiBugs.length > 0) {
+    html += '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;" cellpadding="0" cellspacing="0" border="0">';
+    html += '<tr><td style="padding:10px 14px;background:#eff6ff;border-left:3px solid #1e40af;">';
+    html += '<span style="font-size:13px;font-weight:700;color:#1e40af;">高危 BUG</span>';
+    html += '<span style="font-size:11px;color:#64748b;margin-left:6px;">S / A 级激活 &middot; ' + hiBugs.length + ' 个</span>';
+    html += '</td></tr></table>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:24px;" cellpadding="0" cellspacing="0" border="0">';
+    hiBugs.forEach(function(b, idx) {
+      var sevBg = b.severity === 'S' ? '#eff6ff' : '#f8fafc';
+      var sevColor = b.severity === 'S' ? '#1e40af' : '#3b82f6';
+      var newBadge = b.isNew ? ' <span style="display:inline-block;background:#dbeafe;color:#1e40af;font-size:9px;font-weight:600;padding:0 5px;border-radius:2px;line-height:16px;margin-left:4px;">NEW</span>' : '';
+      var rowBg = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
+      html += '<tr style="background:' + rowBg + ';">';
+      html += '<td style="padding:7px 10px;border-bottom:1px solid #e0e7ff;width:80px;">';
+      html += '<a href="https://zd.bicv.com/bug-view-' + b.id + '.html" style="color:#2563eb;text-decoration:none;font-weight:500;font-size:12px;" target="_blank">#' + b.id + '</a>';
+      html += '</td>';
+      html += '<td style="padding:7px 8px;border-bottom:1px solid #e0e7ff;font-size:12px;">' + escHtml(b.title) + newBadge + '</td>';
+      html += '<td style="padding:7px 8px;border-bottom:1px solid #e0e7ff;text-align:center;width:40px;">';
+      html += '<span style="display:inline-block;width:20px;height:20px;line-height:20px;background:' + sevColor + ';color:#fff;border-radius:3px;font-size:11px;font-weight:600;">' + b.severity + '</span>';
+      html += '</td>';
+      html += '<td style="padding:7px 10px;border-bottom:1px solid #e0e7ff;font-size:12px;color:#64748b;width:60px;">' + escHtml(b.name) + '</td>';
+      html += '</tr>';
+    });
+    html += '</table>';
+  }
+
+  // 脚注
+  html += '<table style="width:100%;border-collapse:collapse;" cellpadding="0" cellspacing="0" border="0"><tr>';
+  html += '<td style="padding-top:12px;border-top:1px solid #e5e7eb;font-size:10px;color:#6b7280;">';
+  html += '禅道 BUG 分析 &middot; 周报 &middot; ' + startDate + ' ~ ' + endDate;
+  html += '</td></tr></table>';
+
+  html += '</div>';
+  return html;
+}
+
+// 周报复制
+document.getElementById('btn-copy-weekly-html').addEventListener('click', function() {
+  var btn = this;
+  var orig = btn.textContent;
+  try {
+    var plainText = _weeklyHTML.replace(/<[^>]*>/g, '\n').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/\n{3,}/g, '\n\n').trim();
+    var blobHTML = new Blob([_weeklyHTML], { type: 'text/html' });
+    var blobText = new Blob([plainText], { type: 'text/plain' });
+    navigator.clipboard.write([new ClipboardItem({
+      'text/html': blobHTML,
+      'text/plain': blobText
+    })]).then(function() {
+      btn.textContent = '已复制';
+      setTimeout(function() { btn.textContent = orig; }, 2000);
+    }).catch(function() {
+      navigator.clipboard.writeText(plainText).then(function() {
+        btn.textContent = '已复制';
+        setTimeout(function() { btn.textContent = orig; }, 2000);
+      }).catch(function() {
+        alert('复制失败');
+        btn.textContent = orig;
+      });
+    });
+  } catch (e) {
+    alert('复制失败');
+    btn.textContent = orig;
+  }
+});
+
+// 周报下载
+document.getElementById('btn-download-weekly-html').addEventListener('click', function() {
+  var btn = this;
+  var orig = btn.textContent;
+  var projectName = '';
+  var sel = document.getElementById('project-select');
+  if (sel) { var opt = sel.selectedOptions[0]; projectName = opt ? opt.textContent.replace(/[\\/:*?"<>|]/g, '_') : 'report'; }
+  var fullHTML = '<!DOCTYPE html>\n<html><head><meta charset="utf-8"><title>' + projectName + ' 周报</title></head><body style="margin:0;padding:16px;background:#f5f5f5;">' + _weeklyHTML + '</body></html>';
+  var blob = new Blob([fullHTML], { type: 'text/html' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = projectName + '_周报_' + new Date().toISOString().slice(0, 10) + '.html';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  btn.textContent = '已下载';
+  setTimeout(function() { btn.textContent = orig; }, 2000);
+});
+
+// ========== 邮件趋势图 ==========
+function renderEmailTrendChart() {
+  if (_emailTrendChart) { _emailTrendChart.destroy(); _emailTrendChart = null; }
+  if (!_emailTrendData || !_emailTrendData.records || _emailTrendData.records.length === 0) return;
+
+  var focusNames = [];
+  _currentPersons.forEach(function(p) {
+    if (p.focus) focusNames.push(p.name);
+  });
+  if (!focusNames.length) return;
+
+  var dates = _emailTrendData.records.map(function(r) { return r.date.replace(/^\d{4}-/, ''); });
+
+  // 每个日期，COC人员的激活数合计
+  var activeData = _emailTrendData.records.map(function(rec) {
+    var sum = 0;
+    (rec.persons || []).forEach(function(p) {
+      if (focusNames.indexOf(p.name) !== -1) sum += (p.active || 0);
+    });
+    return sum;
+  });
+
+  var canvas = document.getElementById('email-trend-canvas');
+  canvas.width = 700;
+  canvas.height = 380;
+  var ctx = canvas.getContext('2d');
+
+  _emailTrendChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: dates,
+      datasets: [{
+        label: '激活 BUG 数量',
+        data: activeData,
+        borderColor: '#d93025',
+        backgroundColor: 'rgba(217,48,37,0.08)',
+        borderWidth: 3,
+        pointRadius: 5,
+        pointBackgroundColor: '#d93025',
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2,
+        pointHoverRadius: 7,
+        tension: 0.3,
+        fill: true,
+      }],
+    },
+    options: {
+      responsive: false,
+      plugins: {
+        dataLabels: false,
+        legend: { display: false },
+        title: {
+          display: true,
+          text: 'COC人员激活 BUG 趋势',
+          font: { size: 16, weight: '700' },
+          color: '#1c2024',
+          padding: { bottom: 16 },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { font: { size: 12 }, color: '#60646c', maxRotation: 30 },
+          grid: { display: false },
+        },
+        y: {
+          beginAtZero: true,
+          ticks: { font: { size: 12 }, color: '#60646c', precision: 0, stepSize: 1 },
+          grid: { color: 'rgba(0,0,0,0.06)' },
+        },
+      },
+    },
+    plugins: [{
+      id: 'emailTrendLabels',
+      afterDatasetsDraw: function(chart) {
+        var meta = chart.getDatasetMeta(0);
+        if (!meta || !meta.data || meta.data.length < 2) return;
+        var ctx = chart.ctx;
+        var points = meta.data;
+        // 只在首尾标注
+        [0, points.length - 1].forEach(function(idx) {
+          var pt = points[idx];
+          var val = chart.data.datasets[0].data[idx];
+          if (val === null || val === undefined) return;
+          ctx.save();
+          ctx.font = 'bold 14px -apple-system, sans-serif';
+          ctx.fillStyle = '#d93025';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText(val, pt.x, pt.y - 10);
+          ctx.restore();
+        });
+      },
+    }],
+  });
+}
+
+// ========== 下载图表 PNG ==========
+document.getElementById('btn-download-trend-png').addEventListener('click', function() {
+  var canvas = document.getElementById('email-trend-canvas');
+  if (!canvas.toDataURL) return;
+  var link = document.createElement('a');
+  link.download = 'bug_trend_chart.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
 });
 
 // ========== 初始化 ==========

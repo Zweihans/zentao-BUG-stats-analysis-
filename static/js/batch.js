@@ -2,6 +2,7 @@
 
 let batchEventSource = null;
 let batchStartTime = 0;
+let batchCurrentProgress = 0;
 
 document.getElementById('btn-start-batch').addEventListener('click', async () => {
   const checked = document.querySelectorAll('.batch-check:checked');
@@ -46,9 +47,12 @@ async function startBatchDownload(ids) {
 
   batchEventSource.addEventListener('progress', (e) => {
     const d = JSON.parse(e.data);
-    updateProjectStatus(d.project, '下载中', 'var(--link-cobalt)');
+    batchCurrentProgress = d.percent || 0;
+    updateProjectStatus(d.project, '下载中 ' + batchCurrentProgress + '%', 'var(--link-cobalt)');
     const overall = d.overall || { done: 0, total: total };
-    updateBatchProgress(overall.done, overall.total);
+    // 将当前项目的内部进度折算进总体进度
+    var effectiveDone = overall.done + batchCurrentProgress / 100;
+    updateBatchProgress(effectiveDone, overall.total);
   });
 
   batchEventSource.addEventListener('complete', (e) => {
@@ -130,7 +134,7 @@ function updateProjectStatus(projectId, text, color) {
 function updateBatchProgress(done, total) {
   const pct = total > 0 ? Math.round(done / total * 100) : 0;
   document.getElementById('batch-progress-bar').style.width = pct + '%';
-  document.getElementById('batch-progress-text').textContent = done + '/' + total;
+  document.getElementById('batch-progress-text').textContent = Math.floor(done) + '/' + total;
 
   if (done > 0 && done < total) {
     const elapsed = (Date.now() - batchStartTime) / 1000;
@@ -141,6 +145,8 @@ function updateBatchProgress(done, total) {
     } else {
       document.getElementById('batch-eta').textContent = '约 ' + Math.round(remaining / 60) + ' 分钟';
     }
+  } else if (done <= 0) {
+    document.getElementById('batch-eta').textContent = '正在连接...';
   }
 }
 

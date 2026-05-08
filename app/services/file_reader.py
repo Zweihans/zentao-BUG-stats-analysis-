@@ -80,15 +80,21 @@ def parse_headers(headers: list) -> dict:
 
 
 def parse_severity(val: str) -> int:
-    """解析严重程度为数字: 0=S, 1=A, 2=B, 3=C"""
+    """解析严重程度为数字: 0=S, 1=A, 2=B, 3=C
+    禅道原生值为 1=致命(S), 2=严重(A), 3=一般(B), 4=轻微(C)
+    """
     if not val:
         return 3
     val = str(val).strip()
     m = re.search(r'#(\d+)', val)
     if m:
-        return int(m.group(1))
+        num = int(m.group(1))
+        return num - 1 if 1 <= num <= 4 else num
     try:
-        return int(val)
+        num = int(val)
+        if 1 <= num <= 4:
+            return num - 1
+        return num
     except ValueError:
         pass
     val_upper = val.upper()

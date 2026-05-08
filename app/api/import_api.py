@@ -18,9 +18,6 @@ if BASE_DIR not in sys.path:
 
 router = APIRouter(tags=["import"])
 
-# 存储进行中的导入任务
-_active_imports: dict[str, dict] = {}
-
 
 def _run_import(project_id: str, cookie: str, q: queue.Queue):
     """在后台线程中运行导入"""
@@ -49,12 +46,14 @@ def _run_import(project_id: str, cookie: str, q: queue.Queue):
         filepath = importer.navigate_and_export(url, progress_cb)
         if filepath:
             # 复制到 downloads 目录（临时目录会被 importer.close() 清理）
+            q.put({"type": "progress", "project": project_id, "percent": 85, "message": "正在复制文件..."})
             downloads_dir = os.path.join(BASE_DIR, "downloads")
             os.makedirs(downloads_dir, exist_ok=True)
             saved_path = os.path.join(downloads_dir, os.path.basename(filepath))
             shutil.copy2(filepath, saved_path)
 
-            # 记录趋势数据（每日最后一次导入覆盖当日之前记录）
+            # 记录趋势数据
+            q.put({"type": "progress", "project": project_id, "percent": 90, "message": "正在记录趋势..."})
             try:
                 from app.services.file_reader import read_file
                 from app.services.bug_analyzer import analyze
@@ -80,12 +79,16 @@ def _run_import(project_id: str, cookie: str, q: queue.Queue):
     except Exception as e:
         q.put({"type": "error", "project": project_id, "message": str(e)})
     finally:
-        importer.close()
+        try:
+            importer.close()
+        except Exception:
+            pass  # 关闭失败不影响流程
 
 
 async def _sse_generator(project_id: str) -> str:
-    """SSE 事件生成器"""
+    """SSE 事件生成器（带超时和客户端断开保护）"""
     import asyncio as _asyncio
+    import time as _time
 
     cookie = get_cookie()
     if not cookie:
@@ -97,17 +100,26 @@ async def _sse_generator(project_id: str) -> str:
     thread = threading.Thread(target=_run_import, args=(project_id, cookie, q), daemon=True)
     thread.start()
 
-    while True:
-        try:
-            data = await asyncio.get_event_loop().run_in_executor(None, lambda: q.get(timeout=0.5))
-            yield f"event: {data['type']}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
-            if data['type'] in ('complete', 'error'):
-                break
-        except queue.Empty:
-            if not thread.is_alive():
-                break
-            # 发送心跳，保持连接
-            yield f": heartbeat\n\n"
+    start = _time.monotonic()
+    try:
+        while True:
+            elapsed = _time.monotonic() - start
+            if elapsed > 600:  # 10分钟硬超时
+                yield f"event: error\ndata: {json.dumps({'message': '导入超时，请重试'})}\n\n"
+                thread.join(timeout=2)
+                return
+            try:
+                data = await asyncio.get_event_loop().run_in_executor(None, lambda: q.get(timeout=0.5))
+                yield f"event: {data['type']}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+                if data['type'] in ('complete', 'error'):
+                    break
+            except queue.Empty:
+                if not thread.is_alive():
+                    break
+                yield f": heartbeat\n\n"
+    except _asyncio.CancelledError:
+        # 客户端断开，后台线程为 daemon 会自动随进程退出
+        return
 
     thread.join(timeout=2)
 
@@ -130,8 +142,9 @@ async def stream_import(project_id: str):
 
 
 async def _batch_sse(project_ids: list[str]) -> str:
-    """批量下载 SSE 生成器"""
+    """批量下载 SSE 生成器（带超时和客户端断开保护）"""
     import asyncio as _asyncio
+    import time as _time
 
     cookie = get_cookie()
     if not cookie:
@@ -142,37 +155,50 @@ async def _batch_sse(project_ids: list[str]) -> str:
     total = len(project_ids)
     completed = 0
     results = []
+    batch_start = _time.monotonic()
 
-    for pid in project_ids:
-        project = find_project(pid)
-        if not project:
-            results.append({"project": pid, "status": "error", "message": "项目不存在"})
+    try:
+        for pid in project_ids:
+            project = find_project(pid)
+            if not project:
+                results.append({"project": pid, "status": "error", "message": "项目不存在"})
+                completed += 1
+                yield f"event: project_done\ndata: {json.dumps({'project': pid, 'status': 'error', 'overall': {'done': completed, 'total': total}}, ensure_ascii=False)}\n\n"
+                continue
+
+            q = queue.Queue()
+            thread = threading.Thread(target=_run_import, args=(pid, cookie, q), daemon=True)
+            thread.start()
+
+            proj_start = _time.monotonic()
+            while True:
+                if _time.monotonic() - proj_start > 600:
+                    yield f"event: error\ndata: {json.dumps({'project': pid, 'message': '单个项目导入超时'}, ensure_ascii=False)}\n\n"
+                    results.append({"project": pid, "status": "error", "message": "超时"})
+                    break
+                if _time.monotonic() - batch_start > 3600:
+                    yield f"event: error\ndata: {json.dumps({'message': '批量导入总超时'}, ensure_ascii=False)}\n\n"
+                    results.append({"project": pid, "status": "error", "message": "总超时"})
+                    break
+                try:
+                    data = await asyncio.get_event_loop().run_in_executor(None, lambda: q.get(timeout=0.5))
+                    data['overall'] = {'done': completed, 'total': total}
+                    yield f"event: {data['type']}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+                    if data['type'] == 'complete':
+                        results.append({"project": pid, "status": "ok", "filename": data.get('filename', '')})
+                        break
+                    elif data['type'] == 'error':
+                        results.append({"project": pid, "status": "error", "message": data.get('message', '')})
+                        break
+                except queue.Empty:
+                    if not thread.is_alive():
+                        break
+                    yield f": heartbeat\n\n"
+
+            thread.join(timeout=2)
             completed += 1
-            yield f"event: project_done\ndata: {json.dumps({'project': pid, 'status': 'error', 'overall': {'done': completed, 'total': total}}, ensure_ascii=False)}\n\n"
-            continue
-
-        q = queue.Queue()
-        thread = threading.Thread(target=_run_import, args=(pid, cookie, q), daemon=True)
-        thread.start()
-
-        while True:
-            try:
-                data = await asyncio.get_event_loop().run_in_executor(None, lambda: q.get(timeout=0.5))
-                data['overall'] = {'done': completed, 'total': total}
-                yield f"event: {data['type']}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
-                if data['type'] == 'complete':
-                    results.append({"project": pid, "status": "ok", "filename": data.get('filename', '')})
-                    break
-                elif data['type'] == 'error':
-                    results.append({"project": pid, "status": "error", "message": data.get('message', '')})
-                    break
-            except queue.Empty:
-                if not thread.is_alive():
-                    break
-                yield f": heartbeat\n\n"
-
-        thread.join(timeout=2)
-        completed += 1
+    except _asyncio.CancelledError:
+        pass  # 客户端断开，daemon 线程自动清理
 
     yield f"event: batch_complete\ndata: {json.dumps({'results': results, 'done': completed, 'total': total}, ensure_ascii=False)}\n\n"
     await asyncio.sleep(0.01)

@@ -22,8 +22,8 @@ class ZentaoImporter:
         self.cancelled = False
         self._cancelled_lock = threading.Lock()
 
-        # Cookie字符串（从浏览器开发者工具获取）
-        self.cookie_str = "device=desktop; hideMenu=false; keepLogin=on; lang=zh-cn; lastProject=708; preBranch=0; preProductID=331; tab=project; theme=default; vision=rnd; za=wangxinghao; zentaosid=15d823ea5845efa8b72a1491771a9d57; zp=1088dc075190572e1ab4be18f69807922187cd38"
+        # Cookie 由调用方通过 import_api 注入（get_cookie()），不在此硬编码
+        self.cookie_str = ""
 
     def _parse_cookies(self) -> list:
         """解析cookie字符串为playwright需要的格式"""
@@ -282,16 +282,16 @@ class ZentaoImporter:
 
             filename = download.suggested_filename
             print(f"[禅道导入] 文件已生成: {filename}")
-            do_callback(f"文件生成完成: {filename}", 80)
+            do_callback(f"正在下载文件: {filename}", 80)
 
             # 检查是否已取消
             if self._is_cancelled():
                 print("[禅道导入] 操作已取消")
                 return None
 
-            # 保存文件
+            # 保存文件（实际在此处等待浏览器完成下载，大文件可能较慢）
             save_path = os.path.join(self.download_path, filename)
-            print(f"[禅道导入] 正在保存文件...")
+            print(f"[禅道导入] 正在保存文件: {filename}")
             download.save_as(save_path)
 
             # 检查文件大小
@@ -327,19 +327,36 @@ class ZentaoImporter:
             print(f"[禅道导入] 关闭页面出错: {e}")
 
     def close(self):
-        """关闭浏览器"""
+        """关闭浏览器（带超时保护，避免线程挂住）"""
+        import signal
         print("[禅道导入] 正在关闭浏览器...")
-        try:
-            if self.page:
-                self.page.close()
-            if self.context:
-                self.context.close()
-            if self.browser:
-                self.browser.close()
-            if hasattr(self, 'playwright') and self.playwright:
-                self.playwright.stop()
-        except Exception as e:
-            print(f"[禅道导入] 关闭浏览器时出错: {e}")
+
+        def _close_browser():
+            try:
+                if self.page:
+                    self.page.close()
+            except Exception:
+                pass
+            try:
+                if self.context:
+                    self.context.close()
+            except Exception:
+                pass
+            try:
+                if self.browser:
+                    self.browser.close()
+            except Exception:
+                pass
+            try:
+                if hasattr(self, 'playwright') and self.playwright:
+                    self.playwright.stop()
+            except Exception:
+                pass
+
+        # 在独立线程中关闭，最多等 15 秒
+        t = threading.Thread(target=_close_browser, daemon=True)
+        t.start()
+        t.join(timeout=15)
 
         if self.download_path and os.path.exists(self.download_path):
             try:

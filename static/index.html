@@ -18,7 +18,7 @@
   <a class="nav-item" data-page="config">设置</a>
 
   <div class="sidebar-spacer"></div>
-  <div class="sidebar-footer" id="sidebar-version">v3.0.0</div>
+  <div class="sidebar-footer" id="sidebar-version">v3.1.0</div>
 </nav>
 
 <main class="main">
@@ -35,10 +35,21 @@
       <button class="btn btn-ghost btn-sm" id="btn-chart-bar">柱状图</button>
       <button class="btn btn-ghost btn-sm" id="btn-chart-pie">饼状图</button>
 	      <button class="btn btn-ghost btn-sm" id="btn-chart-trend">趋势图</button>
+      <button class="btn btn-ghost btn-sm" id="btn-email-report">邮件报告</button>
+      <button class="btn btn-primary btn-sm" id="btn-urge-reminder">催办</button>
+      <button class="btn btn-ghost btn-sm" id="btn-weekly-report">周报</button>
       <button class="btn btn-secondary btn-sm" id="btn-export">导出</button>
     </div>
 
     <div class="page-content" id="analysis-content">
+      <div id="stale-alert" class="banner banner-warning" style="display:none; margin-bottom:8px; align-items:center; gap:10px;">
+        <span style="font-size:14px;">&#128339;</span>
+        <div style="flex:1; font-size:12px; line-height:1.5;">
+          <span style="font-weight:600;">数据可能已过期</span>
+          <span style="color:var(--slate);"> · 更新于 <span id="stale-date"></span></span>
+        </div>
+        <button class="btn btn-sm" style="background:var(--near-black); color:#fff; border:none; padding:4px 14px; border-radius:5px; cursor:pointer; font-size:11px;" onclick="refreshCurrentProject()">立即刷新</button>
+      </div>
       <div id="unfocused-alert" class="banner banner-warning" style="display:none; margin-bottom:12px; align-items:flex-start; gap:10px; position:relative;">
         <span style="font-size:14px;">&#9888;</span>
         <div style="flex:1; font-size:12px; line-height:1.5;">
@@ -72,7 +83,13 @@
 	      </div>
 	      <div id="analysis-loaded" style="display:none; flex-direction:row; gap:16px; overflow:hidden; flex:1;">
         <div class="card" id="person-panel" style="width:280px; flex-shrink:0; display:flex; flex-direction:column; overflow:hidden;">
-          <div style="padding:12px 16px; border-bottom:1px solid var(--border-lavender);">
+          <div style="padding:8px 16px; display:flex; flex-wrap:wrap; gap:4px; border-bottom:1px solid var(--border-lavender);">
+            <span class="tag active person-filter-tag" data-pfilter="all">全部</span>
+            <span class="tag person-filter-tag" data-pfilter="active">有激活</span>
+            <span class="tag person-filter-tag" data-pfilter="hi-sev">S/A级</span>
+            <span class="tag person-filter-tag" data-pfilter="many">5+ Bug</span>
+          </div>
+          <div style="padding:8px 16px; border-bottom:1px solid var(--border-lavender);">
             <input type="search" id="person-search" placeholder="搜索人员..." style="width:100%;">
           </div>
           <div id="person-list" style="overflow-y:auto; flex:1;"></div>
@@ -96,12 +113,15 @@
           <div style="overflow-y:auto; flex:1;">
             <table id="bug-table">
               <thead><tr>
-                <th>BUG ID</th><th>标题</th><th>严重</th><th>状态</th>
+                <th class="sort-th" data-col="id">BUG ID <span class="sort-arrow"></span></th>
+                <th class="sort-th" data-col="title">标题 <span class="sort-arrow"></span></th>
+                <th class="sort-th" data-col="severity">严重 <span class="sort-arrow"></span></th>
+                <th class="sort-th" data-col="status">状态 <span class="sort-arrow"></span></th>
               </tr></thead>
               <tbody id="bug-tbody"></tbody>
             </table>
           </div>
-          <div style="padding:8px 16px; border-top:1px solid var(--border-lavender); font-size:12px; color:var(--slate);" id="focus-active-summary"></div>
+          <div style="padding:8px 16px; border-top:1px solid var(--border-lavender); font-size:12px; color:var(--slate); display:flex; align-items:center; gap:8px;" id="focus-active-summary"></div>
         </div>
       </div>
     </div>
@@ -176,6 +196,30 @@
           </div>
         </div>
         <div class="card" style="padding:28px;">
+          <h3 style="font-size:16px; font-weight:600; margin-bottom:4px; letter-spacing:-0.3px;">数据过期设置</h3>
+          <p style="font-size:12px; color:var(--silver); margin-bottom:12px;">导入的数据文件超过设置的小时数后，分析页将显示过期警告</p>
+          <div style="display:flex; gap:8px; margin-bottom:10px; align-items:center;">
+            <input type="number" id="config-expiration" min="1" max="720" step="1" style="width:100px;" placeholder="小时数">
+            <span style="font-size:12px; color:var(--silver);">小时</span>
+            <button class="btn btn-primary btn-sm" id="btn-config-save-expiration">保存</button>
+          </div>
+          <div id="config-expiration-result" style="font-size:12px;"></div>
+        </div>
+        <div class="card" style="padding:28px;">
+          <h3 style="font-size:16px; font-weight:600; margin-bottom:4px; letter-spacing:-0.3px;">定时自动下载</h3>
+          <p style="font-size:12px; color:var(--silver); margin-bottom:12px;">每天自动下载所有关注项目的最新 BUG 数据，无需手动操作</p>
+          <div style="display:flex; gap:8px; margin-bottom:10px; align-items:center; flex-wrap:wrap;">
+            <label style="display:flex; align-items:center; gap:6px; font-size:13px; cursor:pointer;">
+              <input type="checkbox" id="config-schedule-enabled"> 启用
+            </label>
+            <input type="number" id="config-schedule-hour" min="0" max="23" step="1" style="width:80px;" placeholder="9">
+            <span style="font-size:12px; color:var(--silver);">点执行</span>
+            <button class="btn btn-primary btn-sm" id="btn-config-save-schedule">保存</button>
+          </div>
+          <div id="config-schedule-result" style="font-size:12px;"></div>
+          <div style="font-size:11px; color:var(--silver); margin-top:6px;">自动下载所有标记为"关注"的项目，下载日志见 logs/scheduler.log</div>
+        </div>
+        <div class="card" style="padding:28px;">
           <h3 style="font-size:16px; font-weight:600; margin-bottom:4px; letter-spacing:-0.3px;">缓存管理</h3>
           <p style="font-size:12px; color:var(--silver); margin-bottom:12px;">下载的历史文件占用磁盘空间，可定期清理</p>
           <div style="display:flex; gap:12px; align-items:center;">
@@ -209,7 +253,7 @@
 
 <!-- 柱状图模态窗口 -->
 <div class="modal-overlay" id="chart-bar-modal" style="display:none;">
-  <div class="modal-card" style="width:800px; max-height:85vh; display:flex; flex-direction:column;">
+  <div class="modal-card" style="width:1000px; max-height:90vh; display:flex; flex-direction:column;">
     <div style="display:flex; align-items:center; justify-content:space-between; padding:20px 24px; border-bottom:1px solid var(--border-lavender);">
       <h3 style="font-size:16px; font-weight:600;">BUG 数量柱状图</h3>
       <div style="display:flex; gap:8px; align-items:center;">
@@ -231,7 +275,7 @@
 
 <!-- 饼状图模态窗口 -->
 <div class="modal-overlay" id="chart-pie-modal" style="display:none;">
-  <div class="modal-card" style="width:720px; max-height:85vh; display:flex; flex-direction:column;">
+  <div class="modal-card" style="width:95vw; max-width:1400px; max-height:90vh; display:flex; flex-direction:column;">
     <div style="display:flex; align-items:center; justify-content:space-between; padding:20px 24px; border-bottom:1px solid var(--border-lavender);">
       <h3 style="font-size:16px; font-weight:600;">BUG 分布饼状图</h3>
       <div style="display:flex; gap:8px; align-items:center;">
@@ -242,15 +286,14 @@
         <button class="btn btn-ghost btn-sm" id="btn-chart-pie-close" style="font-size:18px; line-height:1;">&times;</button>
       </div>
     </div>
-    <div style="flex:1; padding:16px 24px; overflow:auto; display:flex; justify-content:center; align-items:flex-start;">
-      <canvas id="chart-pie-canvas" style="max-height:400px;"></canvas>
+    <div style="flex:1; padding:24px; overflow:auto; display:flex; justify-content:center; align-items:flex-start;">
+      <canvas id="chart-pie-canvas"></canvas>
     </div>
-    <div id="chart-pie-labels" style="padding:12px 24px; border-top:1px solid var(--border-lavender); font-size:12px; color:var(--slate); line-height:1.8; max-height:160px; overflow-y:auto;"></div>
   </div>
 </div>
 <!-- 趋势图模态窗口 -->
 <div class="modal-overlay" id="chart-trend-modal" style="display:none;">
-  <div class="modal-card" style="width:900px; max-height:85vh; display:flex; flex-direction:column;">
+  <div class="modal-card" style="width:1100px; max-height:90vh; display:flex; flex-direction:column;">
     <div style="display:flex; align-items:center; justify-content:space-between; padding:20px 24px; border-bottom:1px solid var(--border-lavender);">
       <h3 style="font-size:16px; font-weight:600;">BUG 趋势图</h3>
       <button class="btn btn-ghost btn-sm" id="btn-chart-trend-close" style="font-size:18px; line-height:1;">&times;</button>
@@ -265,6 +308,7 @@
       <span style="font-size:11px; color:var(--silver); font-weight:500; margin-right:4px; white-space:nowrap;">数据</span>
       <span class="tag active trend-data-tag" data-trend-data="total" style="cursor:pointer;">总数</span>
       <span class="tag trend-data-tag" data-trend-data="active" style="cursor:pointer;">激活</span>
+      <span class="tag trend-data-tag" data-trend-data="rate" style="cursor:pointer;">解决率</span>
       <span style="width:8px;"></span>
       <span style="font-size:11px; color:var(--silver); font-weight:500; margin-right:4px; white-space:nowrap;">视图</span>
       <span class="tag trend-view-tag" data-trend-view="single" style="cursor:pointer;">单人</span>
@@ -272,12 +316,84 @@
     </div>
     <div id="trend-person-checkboxes" style="padding:8px 24px; max-height:120px; overflow-y:auto; display:flex; flex-wrap:wrap; gap:4px 16px; font-size:12px; border-bottom:1px solid var(--border-lavender);">
     </div>
-    <div style="flex:1; padding:16px 24px; overflow:hidden; position:relative; min-height:300px;">
+    <div style="flex:1; padding:16px 24px; overflow:hidden; position:relative; min-height:400px;">
       <canvas id="chart-trend-canvas"></canvas>
     </div>
     <div style="padding:10px 24px; border-top:1px solid var(--border-lavender); text-align:center;">
       <span style="font-size:11px; color:var(--silver);">点击图例可切换人员显示 | 仅记录每次导入时的数据快照</span>
         <span style="font-size:13px; font-weight:600;" id="trend-checked-total"></span>
+    </div>
+  </div>
+</div>
+
+<!-- 邮件报告模态窗口 -->
+<div class="modal-overlay" id="email-report-modal" style="display:none;">
+  <div class="modal-card" style="width:820px; max-height:90vh; display:flex; flex-direction:column;">
+    <div style="display:flex; align-items:center; justify-content:space-between; padding:20px 24px; border-bottom:1px solid var(--border-lavender);">
+      <div style="display:flex; gap:4px; align-items:center;">
+        <button class="btn btn-sm email-tab-btn active" data-email-tab="html">HTML 邮件</button>
+        <button class="btn btn-sm email-tab-btn" data-email-tab="trend">趋势图</button>
+      </div>
+      <button class="btn btn-ghost btn-sm" id="btn-email-modal-close" style="font-size:18px; line-height:1;">&times;</button>
+    </div>
+
+    <!-- HTML邮件标签 -->
+    <div class="email-tab-content active" id="email-tab-html" style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
+      <div style="padding:12px 24px; background:var(--sand); font-size:11px; color:var(--silver); display:flex; align-items:center; justify-content:space-between;">
+        <span>预览效果 · 可复制后粘贴到邮件客户端（Outlook / Foxmail 等）</span>
+        <button class="btn btn-primary btn-sm" id="btn-copy-email-html">复制 HTML</button>
+      </div>
+      <div id="email-html-preview" style="flex:1; overflow-y:auto; padding:16px 24px; background:#f5f5f5;"></div>
+    </div>
+
+    <!-- 趋势图标签 -->
+    <div class="email-tab-content" id="email-tab-trend" style="flex:1; display:none; flex-direction:column; overflow:hidden;">
+      <div style="padding:12px 24px; background:var(--sand); font-size:11px; color:var(--silver); display:flex; align-items:center; justify-content:space-between;">
+        <span>COC人员激活 BUG 总数趋势 · 可下载 PNG 插入邮件</span>
+        <button class="btn btn-primary btn-sm" id="btn-download-trend-png">下载 PNG</button>
+      </div>
+      <div style="flex:1; padding:24px; overflow:hidden; display:flex; justify-content:center; align-items:center; background:#fff;">
+        <canvas id="email-trend-canvas" style="max-width:100%; max-height:100%;"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 周报模态窗口 -->
+<div class="modal-overlay" id="weekly-report-modal" style="display:none;">
+  <div class="modal-card" style="width:820px; max-height:90vh; display:flex; flex-direction:column;">
+    <div style="display:flex; align-items:center; justify-content:space-between; padding:20px 24px; border-bottom:1px solid var(--border-lavender);">
+      <span style="font-size:16px; font-weight:700; color:var(--near-black);">周报</span>
+      <button class="btn btn-ghost btn-sm" id="btn-weekly-modal-close" style="font-size:18px; line-height:1;">&times;</button>
+    </div>
+    <div style="padding:12px 24px; background:var(--sand); font-size:11px; color:var(--silver); display:flex; align-items:center; justify-content:space-between;">
+      <span>预览效果 · 可复制后粘贴到邮件客户端（Outlook / Foxmail 等）</span>
+      <div style="display:flex; gap:6px;">
+        <button class="btn btn-primary btn-sm" id="btn-copy-weekly-html">复制 HTML</button>
+        <button class="btn btn-secondary btn-sm" id="btn-download-weekly-html">下载 HTML</button>
+      </div>
+    </div>
+    <div id="weekly-html-preview" style="flex:1; overflow-y:auto; padding:16px 24px; background:#f5f5f5;"></div>
+  </div>
+</div>
+
+<!-- 催办预览模态窗口 -->
+<div class="modal-overlay" id="urge-modal" style="display:none;">
+  <div class="modal-card" style="width:560px; max-height:90vh; display:flex; flex-direction:column;">
+    <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid var(--border-lavender);">
+      <span style="font-size:15px; font-weight:700; color:var(--near-black);" id="urge-modal-title">催办</span>
+      <button class="btn btn-ghost btn-sm" id="btn-urge-modal-close" style="font-size:18px; line-height:1;">&times;</button>
+    </div>
+    <div style="padding:12px 20px; display:flex; gap:8px; border-bottom:1px solid var(--border-lavender);">
+      <button class="btn btn-sm" id="btn-urge-scope-all" style="background:var(--near-black);color:#fff;border:none;border-radius:var(--radius-input);">全部关注</button>
+      <button class="btn btn-sm" id="btn-urge-scope-single" style="background:transparent;color:var(--slate);border:1px solid var(--input-border);border-radius:var(--radius-input);">当前人员</button>
+    </div>
+    <div style="padding:16px 20px; flex:1; display:flex; flex-direction:column; gap:8px;">
+      <textarea id="urge-text-preview" style="width:100%;height:200px;padding:12px;border:1px solid var(--input-border);border-radius:var(--radius-input);font-size:13px;font-family:inherit;line-height:1.6;resize:vertical;"></textarea>
+      <div style="display:flex; justify-content:flex-end; gap:8px;">
+        <button class="btn btn-secondary btn-sm" id="btn-urge-modal-close2">取消</button>
+        <button class="btn btn-primary btn-sm" id="btn-urge-copy">复制</button>
+      </div>
     </div>
   </div>
 </div>

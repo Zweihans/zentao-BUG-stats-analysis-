@@ -4,6 +4,8 @@ import json
 from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from app.stores.project_store import find_project, load_projects
+
+DOWNLOADS_DIR = os.path.realpath(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "downloads"))
 from app.stores.focus_store import load_focus_list
 from app.services.file_reader import read_file
 from app.services.bug_analyzer import analyze
@@ -16,17 +18,34 @@ LAST_STATE_FILE = os.path.join(BASE_DIR, "last_state.json")
 router = APIRouter(tags=["analyze"])
 
 
-def find_latest_file(project_id: str) -> str | None:
-    """找到项目最新的下载文件"""
+def find_latest_file(project_name: str) -> str | None:
+    """找到项目最新的下载文件，排除其他项目中与当前项目名重叠的情况"""
     if not os.path.exists(DOWNLOADS):
         return None
 
-    prefix = project_id.lower()
+    # 找出比当前项目名更长且以其为前缀的其他项目名（如 C52X-E14 中的 C52X）
+    projects = load_projects()
+    prefix = project_name.lower()
+    longer_names = []
+    for p in projects:
+        pname = p['name'].lower()
+        if pname != prefix and pname.startswith(prefix):
+            longer_names.append(pname)
+
     candidates = []
     for f in os.listdir(DOWNLOADS):
         if not (f.endswith('.xlsx') or f.endswith('.csv')):
             continue
-        if prefix in f.lower():
+        f_lower = f.lower()
+        if prefix not in f_lower:
+            continue
+        # 排除被更长项目名匹配到的文件
+        skip = False
+        for ln in longer_names:
+            if ln in f_lower:
+                skip = True
+                break
+        if not skip:
             candidates.append((os.path.getmtime(os.path.join(DOWNLOADS, f)), f))
 
     if not candidates:
@@ -102,9 +121,14 @@ async def analyze_project(project_id: str):
     result['file_path'] = filepath
     result['file_date'] = extract_file_date(filepath)
 
-    # 判断是否陈旧（不是今天的）
-    today = datetime.now().strftime('%Y-%m-%d')
-    result['stale'] = result['file_date'] != today
+    # 判断是否陈旧：文件修改时间距今超过配置的过期小时数
+    try:
+        from app.services.config_store import get_expiration_hours
+        mtime = os.path.getmtime(filepath)
+        age_hours = (datetime.now().timestamp() - mtime) / 3600
+        result['stale'] = age_hours > get_expiration_hours()
+    except Exception:
+        result['stale'] = False
 
     # 保存最后状态
     try:
@@ -122,6 +146,9 @@ async def analyze_file(data: dict):
     file_path = data.get('file_path', '')
     project_id = data.get('project_id', '')
 
+    real_path = os.path.realpath(file_path) if file_path else ""
+    if not real_path.startswith(DOWNLOADS_DIR + os.sep) and real_path != DOWNLOADS_DIR:
+        raise HTTPException(403, "禁止访问该路径")
     if not os.path.exists(file_path):
         raise HTTPException(404, "文件不存在")
 
