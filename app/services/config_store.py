@@ -9,6 +9,8 @@ DEFAULTS = {
     "expiration_hours": 24,
     "schedule_enabled": False,
     "schedule_hour": 9,
+    "urge_style": "formal",
+    "urge_custom_prompt": "",
 }
 
 

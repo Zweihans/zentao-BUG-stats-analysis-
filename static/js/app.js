@@ -55,13 +55,131 @@ function getSelectedProjectId(selector) {
 }
 
 // ========== 数据分析页 ==========
-// 按项目持久化"已提醒过"的未COC人员（sessionStorage：刷新不丢失，关浏览器自动清）
-function _unfocusedSeenKey(projectId) { return 'unfocused_seen_' + projectId; }
-function _getUnfocusedSeen(projectId) {
-  try { return JSON.parse(sessionStorage.getItem(_unfocusedSeenKey(projectId)) || '[]'); } catch (e) { return []; }
+// 按项目持久化"已忽略"的未关注人员（localStorage：关浏览器不丢失）
+// 用户点 × 关闭提醒时记录，忽略过一次就永不再提醒
+function _ignoredKey(projectId) { return 'ignored_unfocused_' + projectId; }
+function _getIgnored(projectId) {
+  try { return JSON.parse(localStorage.getItem(_ignoredKey(projectId)) || '[]'); } catch (e) { return []; }
 }
-function _setUnfocusedSeen(projectId, names) {
-  try { sessionStorage.setItem(_unfocusedSeenKey(projectId), JSON.stringify(names)); } catch (e) {}
+function _addIgnored(projectId, names) {
+  try {
+    var existing = _getIgnored(projectId);
+    names.forEach(function(n) { if (existing.indexOf(n) === -1) existing.push(n); });
+    localStorage.setItem(_ignoredKey(projectId), JSON.stringify(existing));
+  } catch (e) {}
+}
+
+// ========== 重名确认弹窗 ==========
+var _ambiguousData = [];
+var _ambiguousProjectId = '';
+
+// 持久化已跳过的池名（localStorage：关浏览器不丢失）
+function _ignoredAmbiguousKey(projectId) { return 'ignored_ambiguous_' + projectId; }
+function _getIgnoredAmbiguous(projectId) {
+  try { return JSON.parse(localStorage.getItem(_ignoredAmbiguousKey(projectId)) || '[]'); } catch (e) { return []; }
+}
+function _addIgnoredAmbiguous(projectId, poolNames) {
+  try {
+    var existing = _getIgnoredAmbiguous(projectId);
+    poolNames.forEach(function(n) { if (existing.indexOf(n) === -1) existing.push(n); });
+    localStorage.setItem(_ignoredAmbiguousKey(projectId), JSON.stringify(existing));
+  } catch (e) {}
+}
+
+function showAmbiguousModal(projectId, ambiguousList) {
+  // 过滤掉已跳过/确认过的
+  var ignored = _getIgnoredAmbiguous(projectId);
+  ambiguousList = ambiguousList.filter(function(item) {
+    return ignored.indexOf(item.pool_name) === -1;
+  });
+  if (!ambiguousList.length) return;
+
+  _ambiguousData = ambiguousList;
+  _ambiguousProjectId = projectId;
+  var listEl = document.getElementById('ambiguous-list');
+  var html = '';
+  ambiguousList.forEach(function(item) {
+    html += '<div style="margin-bottom:16px;">';
+    html += '<div style="font-size:13px; font-weight:600; margin-bottom:6px;">池中姓名: ' + escHtml(item.pool_name) + '</div>';
+    html += '<div style="font-size:12px; color:var(--silver); margin-bottom:4px;">禅道匹配到 ' + item.matches.length + ' 人:</div>';
+    item.matches.forEach(function(name) {
+      html += '<label style="display:flex; align-items:center; gap:6px; padding:4px 0; cursor:pointer; font-size:13px;">';
+      html += '<input type="radio" name="amb_' + escHtml(item.pool_name) + '" value="' + escHtml(name) + '" checked>';
+      html += escHtml(name) + '</label>';
+    });
+    html += '</div>';
+  });
+  listEl.innerHTML = html;
+  document.getElementById('ambiguous-modal').style.display = 'flex';
+}
+
+// 确认按钮
+document.addEventListener('DOMContentLoaded', function() {
+  var confirmBtn = document.getElementById('btn-ambiguous-confirm');
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', async function() {
+      var selected = [];
+      var allPoolNames = [];
+      _ambiguousData.forEach(function(item) {
+        allPoolNames.push(item.pool_name);
+        var radio = document.querySelector('input[name="amb_' + item.pool_name.replace(/"/g, '\\"') + '"]:checked');
+        if (radio) {
+          selected.push({ pool_name: item.pool_name, chosen_name: radio.value });
+        }
+      });
+      // 持久化：已确认过的不再弹
+      _addIgnoredAmbiguous(_ambiguousProjectId, allPoolNames);
+      if (selected.length > 0) {
+        try {
+          await API.post('/focus-pool/confirm-ambiguous', { project_id: _ambiguousProjectId, selected: selected });
+        } catch (e) {}
+      }
+      document.getElementById('ambiguous-modal').style.display = 'none';
+      loadAnalysisData(_ambiguousProjectId);
+    });
+  }
+
+  var skipBtn = document.getElementById('btn-ambiguous-skip');
+  if (skipBtn) {
+    skipBtn.addEventListener('click', function() {
+      // 持久化：跳过的池名不再弹
+      var poolNames = _ambiguousData.map(function(item) { return item.pool_name; });
+      _addIgnoredAmbiguous(_ambiguousProjectId, poolNames);
+      document.getElementById('ambiguous-modal').style.display = 'none';
+    });
+  }
+
+  // 点击遮罩关闭也持久化
+  var ambModal = document.getElementById('ambiguous-modal');
+  if (ambModal) {
+    ambModal.addEventListener('click', function(e) {
+      if (e.target === this) {
+        var poolNames = _ambiguousData.map(function(item) { return item.pool_name; });
+        _addIgnoredAmbiguous(_ambiguousProjectId, poolNames);
+        this.style.display = 'none';
+      }
+    });
+  }
+});
+
+// × 按钮调用
+function dismissAmbiguousModal() {
+  var ambModal = document.getElementById('ambiguous-modal');
+  if (ambModal) {
+    var poolNames = _ambiguousData.map(function(item) { return item.pool_name; });
+    _addIgnoredAmbiguous(_ambiguousProjectId, poolNames);
+    ambModal.style.display = 'none';
+  }
+}
+
+function dismissUnfocusedAlert() {
+  var pid = getSelectedProjectId('#project-select');
+  if (!pid) return;
+  // 将当前显示的新未关注人员持久化到忽略列表
+  if (_quickAddNames && _quickAddNames.length) {
+    _addIgnored(pid, _quickAddNames);
+  }
+  document.getElementById('unfocused-alert').style.display = 'none';
 }
 
 document.getElementById('project-select').addEventListener('change', async function() {
@@ -165,13 +283,12 @@ async function loadAnalysisData(projectId) {
     var summaryEl = document.getElementById('focus-active-summary');
     if (summaryEl) summaryEl.textContent = 'COC人员 · 激活 BUG: ' + focusActive;
 
-    // 未COC人员提示 — 每个项目只提醒一次，新导入后有新增人员才提醒
+    // 未COC人员提示 — 已忽略过的永不再提醒，仅显示新出现的
     var unfocused = data.unfocused_persons || [];
-    var seen = _getUnfocusedSeen(projectId);
+    var ignored = _getIgnored(projectId);
     var newUnfocused = unfocused.filter(function(name) {
-      return seen.indexOf(name) === -1;
+      return ignored.indexOf(name) === -1;
     });
-    _setUnfocusedSeen(projectId, unfocused);
     var alertEl = document.getElementById('unfocused-alert');
     if (newUnfocused.length > 0) {
       document.getElementById('unfocused-names').textContent = newUnfocused.join('、');
@@ -179,6 +296,21 @@ async function loadAnalysisData(projectId) {
       alertEl.style.display = 'flex';
     } else {
       alertEl.style.display = 'none';
+    }
+
+    // 自动匹配全局关注池
+    if (unfocused.length > 0) {
+      var focusedNames = data.persons.filter(function(p) { return p.focus; }).map(function(p) { return p.name; });
+      API.post('/focus-pool/auto-match', { project_id: projectId, unfocused: unfocused, focused: focusedNames }).then(function(r) {
+        var needReload = false;
+        if (r.auto_focused && r.auto_focused.length > 0) {
+          needReload = true;
+        }
+        if (r.ambiguous && r.ambiguous.length > 0) {
+          showAmbiguousModal(projectId, r.ambiguous);
+        }
+        if (needReload) loadAnalysisData(projectId);
+      }).catch(function() {});
     }
 
     if (data.persons && data.persons.length > 0) {
@@ -310,11 +442,13 @@ function selectPerson(name, bugs) {
     return;
   }
   tbody.innerHTML = bugs.map(b => {
-    const isNew = b.is_new ? ' class="new"' : '';
-    const newMark = b.is_new ? ' <span class="badge badge-new" style="font-size:10px;">新增</span>' : '';
+    var isNew = b.is_new ? ' class="new"' : '';
+    var newMark = b.is_new ? ' <span class="badge badge-new" style="font-size:10px;">新增</span>' : '';
+    var overdueDays = getOverdueDays(b.deadline);
+    var overdueMark = overdueDays ? ' <span class="badge badge-overdue" style="font-size:10px;">延期' + overdueDays + '天</span>' : '';
     return '<tr' + isNew + ' data-id="' + (b.id || '0') + '" data-title="' + (b.title || '').replace(/"/g, '&quot;') + '" data-severity="' + (b.severity || '') + '" data-status="' + (b.status || '') + '">' +
       '<td><a class="bug-id-link" href="https://zd.bicv.com/bug-view-' + b.id + '.html" target="_blank">#' + b.id + '</a></td>' +
-      '<td>' + escHtml(b.title || '') + newMark + '</td>' +
+      '<td>' + escHtml(b.title || '') + newMark + overdueMark + '</td>' +
       '<td><span class="badge" style="' + severityBadge(b.severity) + '">' + (b.severity || '-') + '</span></td>' +
       '<td>' + escHtml(b.status || '') + '</td>' +
       '</tr>';
@@ -428,6 +562,18 @@ function batchCard(p) {
 }
 
 // ========== 工具函数 ==========
+function getOverdueDays(deadlineStr) {
+  if (!deadlineStr) return null;
+  var m = deadlineStr.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (!m) return null;
+  var dl = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+  var today = new Date();
+  today.setHours(0, 0, 0, 0);
+  dl.setHours(0, 0, 0, 0);
+  var diff = Math.floor((today - dl) / 86400000);
+  return diff > 0 ? diff : null;
+}
+
 function escHtml(str) {
   const div = document.createElement('div');
   div.textContent = str || '';
@@ -1153,7 +1299,25 @@ function loadConfigPage() {
       if (schedEnabled) schedEnabled.checked = data.schedule_enabled;
       var schedHour = document.getElementById('config-schedule-hour');
       if (schedHour) schedHour.value = data.schedule_hour;
+      // 加载催办偏好
+      if (data.urge_style) _urgeStyle = data.urge_style;
+      if (data.urge_custom_prompt !== undefined) _urgeCustomPrompt = data.urge_custom_prompt || '';
     }).catch(function() {});
+    // 加载 AI 配置
+    API.get('/ai/config').then(function(data) {
+      var baseUrl = document.getElementById('config-ai-base-url');
+      var apiKey = document.getElementById('config-ai-api-key');
+      var model = document.getElementById('config-ai-model');
+      if (baseUrl) baseUrl.value = data.base_url || '';
+      if (apiKey) apiKey.value = data.api_key || '';
+      if (model) model.value = data.model || '';
+    }).catch(function() {});
+    // 加载全局关注池统计
+    API.get('/focus-pool').then(function(data) {
+      document.getElementById('config-pool-info').textContent = data.count + ' 人在池中';
+    }).catch(function() {
+      document.getElementById('config-pool-info').textContent = '加载失败';
+    });
   } catch (e) { console.error(e); }
 }
 
@@ -1269,6 +1433,86 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     });
   }
+
+  // AI 配置保存
+  var aiSaveBtn = document.getElementById('btn-config-save-ai');
+  if (aiSaveBtn) {
+    aiSaveBtn.addEventListener('click', async function() {
+      var baseUrl = document.getElementById('config-ai-base-url').value.trim();
+      var apiKey = document.getElementById('config-ai-api-key').value.trim();
+      var model = document.getElementById('config-ai-model').value.trim();
+      var resultEl = document.getElementById('config-ai-result');
+      try {
+        await API.put('/ai/config', { base_url: baseUrl, api_key: apiKey, model: model });
+        resultEl.textContent = '已保存';
+        resultEl.style.color = 'var(--green)';
+      } catch (e) {
+        resultEl.textContent = '保存失败';
+        resultEl.style.color = 'var(--red)';
+      }
+    });
+  }
+
+  // AI 连接检测
+  var aiTestBtn = document.getElementById('btn-config-test-ai');
+  if (aiTestBtn) {
+    aiTestBtn.addEventListener('click', async function() {
+      var resultEl = document.getElementById('config-ai-result');
+      aiTestBtn.disabled = true;
+      aiTestBtn.textContent = '检测中...';
+      resultEl.textContent = '';
+      try {
+        var res = await API.post('/ai/test', {});
+        if (res.ok) {
+          resultEl.textContent = '连接成功: ' + res.message;
+          resultEl.style.color = 'var(--green)';
+        } else {
+          resultEl.textContent = res.message;
+          resultEl.style.color = 'var(--red)';
+        }
+      } catch (e) {
+        resultEl.textContent = '检测请求失败';
+        resultEl.style.color = 'var(--red)';
+      } finally {
+        aiTestBtn.disabled = false;
+        aiTestBtn.textContent = '检测';
+      }
+    });
+  }
+
+  // 全局关注池导入
+  var importPoolBtn = document.getElementById('btn-config-import-pool');
+  if (importPoolBtn) {
+    importPoolBtn.addEventListener('click', async function() {
+      var fileInput = document.getElementById('config-pool-file');
+      var file = fileInput ? fileInput.files[0] : null;
+      var resultEl = document.getElementById('config-pool-result');
+      var infoEl = document.getElementById('config-pool-info');
+      if (!file) {
+        resultEl.textContent = '请先选择文件';
+        resultEl.style.color = 'var(--red)';
+        return;
+      }
+      importPoolBtn.disabled = true;
+      importPoolBtn.textContent = '导入中...';
+      resultEl.textContent = '';
+      try {
+        var formData = new FormData();
+        formData.append('file', file);
+        var res = await API.upload('/focus-pool/import', formData);
+        resultEl.textContent = '导入完成 · 新增 ' + res.added + ' 人 · 池中共 ' + res.total + ' 人';
+        resultEl.style.color = 'var(--green)';
+        if (infoEl) infoEl.textContent = res.total + ' 人在池中';
+        fileInput.value = '';
+      } catch (e) {
+        resultEl.textContent = '导入失败: ' + (e.message || e);
+        resultEl.style.color = 'var(--red)';
+      } finally {
+        importPoolBtn.disabled = false;
+        importPoolBtn.textContent = '导入';
+      }
+    });
+  }
 });
 
 // 欢迎页按钮 — 跳转到数据下载页
@@ -1297,27 +1541,31 @@ var _emailTrendData = null;
 // ========== 一键催办 ==========
 var _selectedPersonName = '';
 var _urgeScope = 'all';
+var _urgeStyle = 'formal';
+var _urgeCustomPrompt = '';
+
+function isActive(st) {
+  if (!st) return true;
+  var s = st.toLowerCase();
+  return s.indexOf('closed') === -1 && s.indexOf('已关闭') === -1 && s.indexOf('resolved') === -1 && s.indexOf('已解决') === -1;
+}
+
+function getUrgeTargets(scope) {
+  if (scope === 'single' && _selectedPersonName) {
+    return _currentPersons.filter(function(p) { return p.name === _selectedPersonName && (p.active || 0) > 0; });
+  }
+  var t = _currentPersons.filter(function(p) { return p.focus && (p.active || 0) > 0; });
+  t.sort(function(a, b) { return (b.active || 0) - (a.active || 0); });
+  return t;
+}
 
 function generateUrgeText(scope) {
   var projectName = '';
   var sel = document.getElementById('project-select');
   if (sel) { var opt = sel.selectedOptions[0]; projectName = opt ? opt.textContent : ''; }
 
-  var targets;
-  if (scope === 'single' && _selectedPersonName) {
-    targets = _currentPersons.filter(function(p) { return p.name === _selectedPersonName && (p.active || 0) > 0; });
-  } else {
-    targets = _currentPersons.filter(function(p) { return p.focus && (p.active || 0) > 0; });
-    targets.sort(function(a, b) { return (b.active || 0) - (a.active || 0); });
-  }
-
+  var targets = getUrgeTargets(scope);
   if (!targets.length) return '没有激活 BUG';
-
-  function isActive(st) {
-    if (!st) return true;
-    var s = st.toLowerCase();
-    return s.indexOf('closed') === -1 && s.indexOf('已关闭') === -1 && s.indexOf('resolved') === -1 && s.indexOf('已解决') === -1;
-  }
 
   var lines = ['【' + projectName + '】', ''];
 
@@ -1346,6 +1594,33 @@ function generateUrgeText(scope) {
   return lines.join('\n');
 }
 
+async function generateUrgeWithAI(scope) {
+  var projectName = '';
+  var sel = document.getElementById('project-select');
+  if (sel) { var opt = sel.selectedOptions[0]; projectName = opt ? opt.textContent : ''; }
+
+  var targets = getUrgeTargets(scope);
+  if (!targets.length) return { text: '没有激活 BUG', source: 'none' };
+
+  // 实时读取输入框的值（而非依赖 blur 事件）
+  var extraInput = document.getElementById('urge-extra-prompt');
+  var extra = extraInput ? extraInput.value.trim() : _urgeCustomPrompt;
+
+  try {
+    var res = await API.post('/urge/generate', {
+      targets: targets,
+      project_name: projectName,
+      style: _urgeStyle,
+      extra_prompt: extra
+    });
+    if (res.source === 'ai' && res.text) return { text: res.text, source: 'ai' };
+    // 降级到模板
+    return { text: generateUrgeText(scope), source: 'fallback' };
+  } catch (e) {
+    return { text: generateUrgeText(scope), source: 'fallback' };
+  }
+}
+
 function openUrgeModal(scope) {
   var pid = getSelectedProjectId('#project-select');
   if (!pid) { alert('请先选择项目'); return; }
@@ -1356,7 +1631,12 @@ function openUrgeModal(scope) {
   var btnAll = document.getElementById('btn-urge-scope-all');
   var btnSingle = document.getElementById('btn-urge-scope-single');
   var textarea = document.getElementById('urge-text-preview');
+  var aiStatus = document.getElementById('urge-ai-status');
+  var sourceHint = document.getElementById('urge-source-hint');
+  var regenBtn = document.getElementById('btn-urge-regenerate');
+  var extraInput = document.getElementById('urge-extra-prompt');
 
+  // 设置范围按钮
   if (scope === 'single' && _selectedPersonName) {
     titleEl.textContent = '催办 · ' + _selectedPersonName;
     btnSingle.style.background = 'var(--near-black)';
@@ -1377,10 +1657,43 @@ function openUrgeModal(scope) {
     btnSingle.textContent = _selectedPersonName ? '仅 ' + _selectedPersonName : '当前人员';
   }
 
-  textarea.value = generateUrgeText(scope);
+  // 设置当前风格按钮
+  document.querySelectorAll('.urge-style-btn').forEach(function(btn) {
+    if (btn.dataset.style === _urgeStyle) {
+      btn.style.background = 'var(--near-black)';
+      btn.style.color = '#fff';
+      btn.style.borderColor = 'transparent';
+    } else {
+      btn.style.background = 'transparent';
+      btn.style.color = 'var(--slate)';
+      btn.style.borderColor = 'var(--input-border)';
+    }
+  });
+
+  // 设置额外提示词
+  if (extraInput) extraInput.value = _urgeCustomPrompt;
+
   document.getElementById('urge-modal').style.display = 'flex';
+
+  // 加载中状态
+  textarea.value = '正在生成...';
+  textarea.style.color = 'var(--silver)';
+  if (aiStatus) aiStatus.style.display = 'inline';
+  if (sourceHint) sourceHint.textContent = '';
+  if (regenBtn) regenBtn.style.display = 'none';
+
+  generateUrgeWithAI(scope).then(function(result) {
+    textarea.value = result.text;
+    textarea.style.color = '';
+    if (aiStatus) aiStatus.style.display = 'none';
+    if (sourceHint) {
+      sourceHint.textContent = result.source === 'ai' ? 'AI 生成' : '模板生成（AI 不可用）';
+    }
+    if (regenBtn) regenBtn.style.display = 'inline-block';
+  });
 }
 
+// 基础按钮事件
 document.getElementById('btn-urge-reminder').addEventListener('click', function() {
   openUrgeModal('all');
 });
@@ -1395,6 +1708,7 @@ document.getElementById('urge-modal').addEventListener('click', function(e) {
   if (e.target === this) document.getElementById('urge-modal').style.display = 'none';
 });
 
+// 范围切换
 document.getElementById('btn-urge-scope-all').addEventListener('click', function() {
   openUrgeModal('all');
 });
@@ -1403,6 +1717,38 @@ document.getElementById('btn-urge-scope-single').addEventListener('click', funct
   openUrgeModal('single');
 });
 
+// 风格切换
+document.querySelectorAll('.urge-style-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    _urgeStyle = this.dataset.style;
+    document.querySelectorAll('.urge-style-btn').forEach(function(b) {
+      b.style.background = 'transparent';
+      b.style.color = 'var(--slate)';
+      b.style.borderColor = 'var(--input-border)';
+    });
+    this.style.background = 'var(--near-black)';
+    this.style.color = '#fff';
+    this.style.borderColor = 'transparent';
+    // 仅保存偏好，不自动重新生成（用户可点"重新生成"按钮）
+    API.put('/config', { urge_style: _urgeStyle }).catch(function() {});
+  });
+});
+
+// 额外提示词失焦保存
+var extraPromptInput = document.getElementById('urge-extra-prompt');
+if (extraPromptInput) {
+  extraPromptInput.addEventListener('change', function() {
+    _urgeCustomPrompt = this.value;
+    API.put('/config', { urge_custom_prompt: _urgeCustomPrompt }).catch(function() {});
+  });
+}
+
+// 重新生成
+document.getElementById('btn-urge-regenerate').addEventListener('click', function() {
+  openUrgeModal(_urgeScope);
+});
+
+// 复制
 document.getElementById('btn-urge-copy').addEventListener('click', function() {
   var text = document.getElementById('urge-text-preview').value;
   var btn = this;
@@ -1501,11 +1847,18 @@ function generateEmailHTML(projectId) {
     return bActive - aActive;
   });
 
-  // 环比数据
+  // 环比数据（找最后两条不同日期的记录对比，同天多次导入不产生假环比）
   var prevMap = {};
   if (_emailTrendData && _emailTrendData.records && _emailTrendData.records.length >= 2) {
-    var prevRecord = _emailTrendData.records[_emailTrendData.records.length - 2];
-    (prevRecord.persons || []).forEach(function(p) { prevMap[p.name] = p.active || 0; });
+    var records = _emailTrendData.records;
+    var latestDate = records[records.length - 1].date;
+    var prevRecord = null;
+    for (var i = records.length - 2; i >= 0; i--) {
+      if (records[i].date !== latestDate) { prevRecord = records[i]; break; }
+    }
+    if (prevRecord) {
+      (prevRecord.persons || []).forEach(function(p) { prevMap[p.name] = p.active || 0; });
+    }
   }
 
   var totalActive = 0;
@@ -1518,15 +1871,22 @@ function generateEmailHTML(projectId) {
     totalA += p.A || 0;
     totalNew += p.new_count || 0;
   });
-  // 激活环比变化（基于趋势数据最后两条记录）
+  // 激活环比变化（对比最后两条不同日期的记录）
   var activeDelta = null;
   if (_emailTrendData && _emailTrendData.records && _emailTrendData.records.length >= 2) {
-    var prevRecord = _emailTrendData.records[_emailTrendData.records.length - 2];
-    var prevActiveTotal = 0;
-    (prevRecord.persons || []).forEach(function(p) {
-      if (focusPersons.some(function(fp) { return fp.name === p.name; })) prevActiveTotal += (p.active || 0);
-    });
-    activeDelta = totalActive - prevActiveTotal;
+    var records = _emailTrendData.records;
+    var latestDate = records[records.length - 1].date;
+    var prevRecord = null;
+    for (var i = records.length - 2; i >= 0; i--) {
+      if (records[i].date !== latestDate) { prevRecord = records[i]; break; }
+    }
+    if (prevRecord) {
+      var prevActiveTotal = 0;
+      (prevRecord.persons || []).forEach(function(p) {
+        if (focusPersons.some(function(fp) { return fp.name === p.name; })) prevActiveTotal += (p.active || 0);
+      });
+      activeDelta = totalActive - prevActiveTotal;
+    }
   }
 
   var maxActive = 0;
@@ -1723,18 +2083,25 @@ function generateWeeklyHTML(projectId, newBugIds) {
     });
   });
 
-  // 环比数据（最后两条趋势记录对比）
+  // 环比数据（对比最后两条不同日期的趋势记录）
   var prevMap = {};
   var activeDelta = null;
   if (_emailTrendData && _emailTrendData.records && _emailTrendData.records.length >= 2) {
-    var prevRecord = _emailTrendData.records[_emailTrendData.records.length - 2];
-    (prevRecord.persons || []).forEach(function(p) { prevMap[p.name] = p.active || 0; });
-    var prevActiveTotal = 0;
-    (prevRecord.persons || []).forEach(function(p) {
-      if (focusPersons.some(function(fp) { return fp.name === p.name; })) prevActiveTotal += (p.active || 0);
-    });
-    var curActiveTotal = focusPersons.reduce(function(s, p) { return s + (p.active || 0); }, 0);
-    activeDelta = curActiveTotal - prevActiveTotal;
+    var records = _emailTrendData.records;
+    var latestDate = records[records.length - 1].date;
+    var prevRecord = null;
+    for (var i = records.length - 2; i >= 0; i--) {
+      if (records[i].date !== latestDate) { prevRecord = records[i]; break; }
+    }
+    if (prevRecord) {
+      (prevRecord.persons || []).forEach(function(p) { prevMap[p.name] = p.active || 0; });
+      var prevActiveTotal = 0;
+      (prevRecord.persons || []).forEach(function(p) {
+        if (focusPersons.some(function(fp) { return fp.name === p.name; })) prevActiveTotal += (p.active || 0);
+      });
+      var curActiveTotal = focusPersons.reduce(function(s, p) { return s + (p.active || 0); }, 0);
+      activeDelta = curActiveTotal - prevActiveTotal;
+    }
   }
 
   var totalActive = focusPersons.reduce(function(s, p) { return s + (p.active || 0); }, 0);

@@ -70,6 +70,8 @@ def parse_headers(headers: list) -> dict:
             ('priority', ['优先级', 'bug优先级', 'priority', 'pri']),
             ('severity', ['严重程度', 'bug严重程度', 'severity']),
             ('assignedto', ['指派给', '批示复制', '指派人', '负责人', 'assignedto', 'assigned']),
+            ('openedDate', ['创建日期', 'openeddate', 'createdate', 'createddate']),
+            ('deadline', ['截止日期', 'deadline', '截至日期']),
         ]:
             if key not in hi_map:
                 for a in aliases:
@@ -121,7 +123,7 @@ def read_file(filepath: str) -> list:
     headers = rows[hi]
     hi_map = parse_headers(headers)
 
-    idx = {k: hi_map.get(k, -1) for k in ['id', 'title', 'priority', 'severity', 'assignedto', 'status']}
+    idx = {k: hi_map.get(k, -1) for k in ['id', 'title', 'priority', 'severity', 'assignedto', 'status', 'openedDate', 'deadline']}
 
     bugs = []
     for row in rows[hi + 1:]:
@@ -138,5 +140,7 @@ def read_file(filepath: str) -> list:
             'severity': parse_severity(str(row[idx['severity']]).strip() if idx['severity'] >= 0 and idx['severity'] < len(row) else ''),
             'assignedTo': str(row[idx['assignedto']]).strip() if idx['assignedto'] >= 0 and idx['assignedto'] < len(row) else '未分配',
             'status': str(row[idx['status']]).strip() if idx['status'] >= 0 and idx['status'] < len(row) else '',
+            'openedDate': str(row[idx['openedDate']]).strip() if idx['openedDate'] >= 0 and idx['openedDate'] < len(row) else '',
+            'deadline': str(row[idx['deadline']]).strip() if idx['deadline'] >= 0 and idx['deadline'] < len(row) else '',
         })
     return bugs

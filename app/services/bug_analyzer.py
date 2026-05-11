@@ -76,6 +76,8 @@ def analyze(bugs: list, focus_list: list = None) -> dict:
             'severity': lab,
             'status': st,
             'is_new': b.get('is_new', False),
+            'openedDate': b.get('openedDate', ''),
+            'deadline': b.get('deadline', ''),
         })
 
     # 排序：关注人员在前 + BUG 数降序

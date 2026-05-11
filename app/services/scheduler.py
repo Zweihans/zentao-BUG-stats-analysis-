@@ -61,6 +61,12 @@ def _run_scheduled_import_all():
 def _log(project_id: str, message: str):
     os.makedirs(LOG_DIR, exist_ok=True)
     log_file = os.path.join(LOG_DIR, "scheduler.log")
+    # 超过 5MB 自动轮转
+    if os.path.exists(log_file) and os.path.getsize(log_file) > 5 * 1024 * 1024:
+        old = log_file + '.old'
+        if os.path.exists(old):
+            os.remove(old)
+        os.rename(log_file, old)
     ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     line = f"[{ts}] 项目{project_id}: {message}\n"
     try:
@@ -102,9 +108,6 @@ def refresh_schedule():
 
 
 def start_scheduler():
-    if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
-        return
-
     scheduler = _get_scheduler()
     if not scheduler.running:
         scheduler.start()

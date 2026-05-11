@@ -17,6 +17,11 @@ const API = {
   put(path, b)  { return this.request('PUT', path, b); },
   del(path)     { return this.request('DELETE', path); },
 
+  async upload(path, formData) {
+    const res = await fetch(this.base + path, { method: 'POST', body: formData });
+    return res.json();
+  },
+
   // 项目
   projects: {
     list()    { return API.get('/projects'); },

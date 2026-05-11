@@ -10,3 +10,4 @@ last_state.json
 import_projects.json
 logs/
 .claude/
+.env

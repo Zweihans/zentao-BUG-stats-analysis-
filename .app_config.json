@@ -1,0 +1,7 @@
+{
+  "expiration_hours": 8,
+  "schedule_enabled": true,
+  "schedule_hour": 10,
+  "urge_style": "brief",
+  "urge_custom_prompt": "5/11即将预冻结版本"
+}

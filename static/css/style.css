@@ -272,6 +272,10 @@ select option { color: var(--near-black); }
   background: var(--blue-bg);
   color: var(--blue);
 }
+.badge-overdue {
+  background: #fef2f2;
+  color: #dc2626;
+}
 
 /* 筛选标签 */
 .tag {

@@ -64,6 +64,9 @@ def verify_cookie(cookie_str: str) -> tuple[bool, str]:
 
     cookie_str = _normalize(cookie_str)
 
+    pw = None
+    browser = None
+    context = None
     try:
         pw = sync_playwright().start()
         browser = pw.chromium.launch(headless=True, timeout=15000,
@@ -82,13 +85,20 @@ def verify_cookie(cookie_str: str) -> tuple[bool, str]:
             result = (True, "Cookie 有效")
 
         page.close()
-        context.close()
-        browser.close()
-        pw.stop()
         return result
 
     except Exception as e:
         return (False, f"连接失败: {e}")
+    finally:
+        if context:
+            try: context.close()
+            except Exception: pass
+        if browser:
+            try: browser.close()
+            except Exception: pass
+        if pw:
+            try: pw.stop()
+            except Exception: pass
 
 
 def has_cookie() -> bool:

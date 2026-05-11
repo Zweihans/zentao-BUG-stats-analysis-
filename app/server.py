@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="禅道BUG分析工具", version="3.2.0", lifespan=lifespan)
 
-from app.api import projects, analyze, focus, import_api, export, trend, config_api
+from app.api import projects, analyze, focus, import_api, export, trend, config_api, urge_api
 app.include_router(projects.router, prefix="/api")
 app.include_router(analyze.router, prefix="/api")
 app.include_router(focus.router, prefix="/api")
@@ -34,6 +34,7 @@ app.include_router(import_api.router, prefix="/api")
 app.include_router(export.router, prefix="/api")
 app.include_router(trend.router, prefix="/api")
 app.include_router(config_api.router, prefix="/api")
+app.include_router(urge_api.router, prefix="/api")
 
 
 @app.get("/api/health")

@@ -5,6 +5,7 @@ import io
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from app.services.file_reader import read_file
+from app.services.bug_analyzer import severity_label
 from app.stores.project_store import find_project
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -45,7 +46,7 @@ async def export_csv(project_id: str):
         writer.writerow({
             'id': b.get('id', ''),
             'title': b.get('title', ''),
-            'severity': b.get('severity', ''),
+            'severity': severity_label(b.get('severity', 3)),
             'status': b.get('status', ''),
             'assignedTo': b.get('assignedTo', ''),
         })
