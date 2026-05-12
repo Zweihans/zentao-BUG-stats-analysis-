@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-禅道BUG数据分析工具，网页版（FastAPI + 原生 JS SPA），支持多项目 BUG 下载、按人员分组统计、严重级别筛选、关注人员管理、柱状图/饼状图/趋势折线图、一键催办（AI 文案生成）、周报生成、定时自动下载、全局关注人员池。
+禅道BUG数据分析工具，PyWebView 原生桌面应用（FastAPI + 原生 JS SPA + WebView2），支持多项目 BUG 下载、按人员分组统计、严重级别筛选、关注人员管理、柱状图/饼状图/趋势折线图、AI 催办文案生成、周报生成、定时自动下载、全局关注人员池。
 
 ## 运行命令
 
@@ -12,26 +12,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 cd D:\ai\test\zentao_bug_analysis
 
 # 安装依赖
-pip install fastapi uvicorn apscheduler playwright python-multipart python-dotenv requests
+pip install fastapi uvicorn apscheduler playwright python-multipart python-dotenv requests pywebview
 playwright install chromium
 
 # 启动服务
-python main.py
+python main.py          # 命令行启动
+双击 启动.vbs            # 无窗口启动（推荐日常使用）
 ```
 
-浏览器自动打开 `http://127.0.0.1:8765`。
+PyWebView 窗口自动打开，无需浏览器。
 
 ## 架构
 
 ```
-main.py                  # 入口，uvicorn + 自动开浏览器
+main.py                  # 入口：单实例锁(Named Mutex) + uvicorn 后台线程 + PyWebView 窗口
+启动.vbs                  # VBScript 无窗口启动器
+启动.bat                  # 命令行启动器（有控制台窗口）
 app/
-├── server.py            # FastAPI 应用、lifespan（调度器启停）、静态文件 SPA 回退
+├── server.py            # FastAPI 应用、lifespan（调度器启停）、/api/restart、SPA 回退
 ├── api/                 # API 路由
 │   ├── analyze.py       # 分析接口（GET/POST analyze, /compare, last-state）
 │   ├── config_api.py    # 配置读写（过期时间、定时开关、催办偏好）
 │   ├── export.py        # CSV 导出（severity 转 S/A/B/C 标签）
-│   ├── focus.py         # 关注人员读写 + 全局关注池导入/匹配
+│   ├── focus.py         # 关注人员 + 全局关注池 + 忽略记录 API
 │   ├── import_api.py    # 禅道导入/批量下载（SSE 进度推送）
 │   ├── projects.py      # 项目管理 CRUD
 │   ├── trend.py         # 趋势数据 API
@@ -47,12 +50,13 @@ app/
 │   ├── scheduler.py     # APScheduler 定时任务（串行下载 + 日志 5MB 轮转）
 │   └── trend_store.py   # 趋势数据 upsert（按日期覆盖，线程安全）
 └── stores/              # 数据持久化
-    ├── focus_store.py   # 关注人员列表 + 全局关注池 + 中文姓名匹配
+    ├── focus_store.py   # 关注人员列表 + 全局关注池 + 中文姓名匹配（含数字后缀检测）
+    ├── ignored_store.py # 用户忽略/确认记录（服务端 JSON，不受浏览器/WebView2 影响）
     └── project_store.py # 项目配置（import_projects.json）
 static/
-├── index.html           # SPA 入口（含催办/周报/重名确认等模态窗口）
+├── index.html           # SPA 入口（含催办/周报/重名确认/重启服务等 UI）
 ├── css/style.css        # 样式（含 badge-overdue 延期徽标）
-├── favicon.svg          # 网站图标
+├── favicon.ico/.svg     # 桌面快捷方式图标
 └── js/
     ├── api.js           # API 请求封装（含 FormData upload、EventSource SSE）
     ├── app.js           # 主逻辑：分析、图表、催办(AI)、周报、邮件报告、关注池
@@ -77,6 +81,15 @@ API JSON → 前端 app.js 渲染（含延期天数徽标）
 
 ## 关键设计
 
+### PyWebView 桌面应用
+- `main.py` 启动 uvicorn 后台线程 + PyWebView 原生窗口（WebView2 内核）
+- 单实例锁：Windows Named Mutex（`CreateMutexW`），进程退出自动释放
+- 窗口图标：`WM_SETICON` + `LoadImageW` 加载 `static/favicon.ico`
+- 任务栏图标：`SetCurrentProcessExplicitAppUserModelID`
+- 控制台隐藏：`ShowWindow(SW_HIDE)`，错误通过 MessageBox 弹窗
+- WebView2 持久化：`WEBVIEW2_USER_DATA_FOLDER` 必须设为项目目录（否则 localStorage 每次丢失）
+- 重启服务：设置页「重启服务」按钮 → `/api/restart` → `os.execv` 替换进程
+
 ### 文件匹配规则
 - `find_latest_file(project_name)` — 用项目名（如 "C52X-E14"）在 downloads/ 中匹配最新文件
 - 排除以当前项目名为前缀的更长的项目名（如 "C52X" 不会匹配 "C52X-E14" 的文件）
@@ -91,6 +104,17 @@ API JSON → 前端 app.js 渲染（含延期天数徽标）
 ### 新增 BUG 标记
 - `diff_engine.py` 对比当天与前一天（或更早）的文件，标记新出现的 BUG ID
 - 前端显示"新增"徽标（蓝色），延期显示"延期X天"徽标（红色）
+
+### 关注人员匹配
+- `is_focused()` — **精确全名匹配**（忽略大小写），不做子串/中文名模糊匹配
+- `_match_pool_name()` — 全局池匹配，提取中文姓名 `[一-鿿]{2,4}`，去数字后缀
+- **数字后缀检测**：禅道名去掉中文后含数字（如"李涛2"→"李涛"）标记为歧义，弹窗确认
+- **多片段检测**：中文名有多个片段（如"艾博连-孙超"）标记为歧义
+
+### 忽略/确认记录持久化
+- 服务端 `ignored_{project_id}.json` 存储（不影响浏览器/WebView2 切换）
+- 前端启动时 `_loadIgnoredData()` 自动合并 localStorage 遗留数据到服务端
+- 同时写 localStorage 兜底
 
 ### AI 催办文案
 - 后端 `urge_api.py`：支持正式/口语化/简洁三种风格 + 用户自定义额外提示词
@@ -114,17 +138,6 @@ API JSON → 前端 app.js 渲染（含延期天数徽标）
 - `main.py` 使用 `reload=False` 保证单进程
 - 调度日志 `logs/scheduler.log` 超过 5MB 自动轮转为 `.old`
 
-### 全局关注人员池
-- 上传飞书等导出的 Excel/CSV 文件，自动提取各 sheet 的"姓名"列
-- 分析数据时自动匹配：确定匹配直接关注；前缀/重名弹出确认弹窗
-- 中文姓名提取：正则 `[一-鿿]{2,4}`，去数字后缀，处理多片段前缀
-- 重名确认弹窗支持持久化跳过（localStorage），避免反复弹出
-
-### 前端持久化
-- 未关注人员提醒：localStorage（关浏览器不丢失），仅 × 关闭时写入
-- 重名确认跳过：localStorage，4 个关闭路径（×/跳过/确认/遮罩）均持久化
-- AI 催办偏好（风格/自定义提示词）：服务端 `.app_config.json`
-
 ### 前端版本号
 - 静态资源通过 `?v=3.6.0` 管理缓存，更新后在 index.html 中升级版本号
 
@@ -133,11 +146,17 @@ API JSON → 前端 app.js 渲染（含延期天数徽标）
 ### 关注列表
 - 按项目 ID 存储：`{project_id}list.json`（如 `1list.json`, `2list.json`）
 - 默认文件：`focus_list.json`
-- `is_focused` 使用子串匹配（支持部分名称匹配）
+- `is_focused` 使用精确全名匹配（如 `L:李涛(#litao)` 不会匹配 `L:李涛2(#litao1)`）
 
 ### 全局关注池
 - 文件：`focus_pool.json`
 - 通过设置页上传 Excel/CSV 导入，自动合并去重
+- 分析时自动匹配：单一片段无数字→自动关注；多片段/含数字→弹窗确认
+
+### 忽略记录
+- 文件：`ignored_{project_id}.json`
+- 存储已×掉的未关注提醒 + 已跳过的重名确认
+- 客户端 localStorage 作为兜底
 
 ### 项目配置
 - `import_projects.json`：项目名称、禅道 URL、focus 标记
