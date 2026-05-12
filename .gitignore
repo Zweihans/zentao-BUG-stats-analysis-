@@ -11,3 +11,4 @@ import_projects.json
 logs/
 .claude/
 .env
+.webview2_profile/
