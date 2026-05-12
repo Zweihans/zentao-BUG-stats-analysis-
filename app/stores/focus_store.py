@@ -65,13 +65,12 @@ def extract_project_id(filename: str) -> str | None:
 
 
 def is_focused(person_name: str, focus_list: list) -> bool:
-    """检查人员是否在关注列表中（支持部分匹配）"""
+    """检查人员是否在关注列表中（全名精确匹配，忽略大小写）"""
     if not focus_list:
         return False
     name_lower = person_name.lower()
     for f in focus_list:
-        f_lower = f.lower()
-        if name_lower == f_lower or name_lower in f_lower or f_lower in name_lower:
+        if name_lower == f.lower():
             return True
     return False
 
