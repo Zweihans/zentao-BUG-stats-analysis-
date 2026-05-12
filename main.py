@@ -14,6 +14,9 @@ ERROR_LOG = os.path.join(BASE_DIR, "logs", "error.log")
 PORT = 8765
 URL = f"http://127.0.0.1:{PORT}"
 
+# 必须在 WebView2 初始化前设置，确保 localStorage 跨会话持久化
+os.environ['WEBVIEW2_USER_DATA_FOLDER'] = os.path.join(BASE_DIR, '.webview2_profile')
+
 
 def _hide_console():
     """隐藏控制台窗口（使用 python.exe 而非 pythonw.exe 时）"""
@@ -105,9 +108,6 @@ def main():
 
     icon_thread = threading.Thread(target=_set_window_icon, daemon=True)
     icon_thread.start()
-
-    # WebView2 持久化数据目录（否则每次启动 localStorage 丢失）
-    os.environ['WEBVIEW2_USER_DATA_FOLDER'] = os.path.join(BASE_DIR, '.webview2_profile')
 
     import webview
     webview.create_window(
