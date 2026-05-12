@@ -1,5 +1,8 @@
 """FastAPI 应用主入口"""
 import os
+import sys
+import threading
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -81,6 +84,16 @@ async def cache_info():
     return {"file_count": len(files), "total_mb": round(total / 1024 / 1024, 1)}
 
 
+
+
+@app.post("/api/restart")
+async def restart_server():
+    """重启服务（通过 os.execv 替换当前进程）"""
+    def _do_restart():
+        time.sleep(0.3)
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    threading.Thread(target=_do_restart, daemon=True).start()
+    return {"ok": True}
 
 
 # 静态文件挂载（必须在最后）

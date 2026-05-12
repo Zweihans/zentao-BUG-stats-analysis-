@@ -1429,6 +1429,22 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 
+  var restartBtn = document.getElementById('btn-config-restart');
+  if (restartBtn) {
+    restartBtn.addEventListener('click', async function() {
+      var resultEl = document.getElementById('config-restart-result');
+      restartBtn.disabled = true;
+      restartBtn.textContent = '重启中...';
+      resultEl.textContent = '服务将在 2 秒后重新启动';
+      resultEl.style.color = 'var(--green)';
+      try {
+        await API.post('/restart', {});
+      } catch (e) {
+        // 正常 — 重启时连接会断开
+      }
+    });
+  }
+
   var expirationSaveBtn = document.getElementById('btn-config-save-expiration');
   if (expirationSaveBtn) {
     expirationSaveBtn.addEventListener('click', async function() {
