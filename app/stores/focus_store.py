@@ -126,14 +126,22 @@ def _match_pool_name(zentao_name: str, pool_set: set) -> tuple[str | None, bool]
     Returns:
         (pool_name, is_ambiguous)
         - pool_name: 匹配到的池名，或 None
-        - is_ambiguous: 名字有额外中文前缀/上下文，可能是不同人，需确认
+        - is_ambiguous: 需用户确认才可自动关注
     """
     cn_parts = extract_chinese_names(zentao_name)
     for cn in cn_parts:
         if cn in pool_set:
-            # 如果名字有多个中文片段（如 ['艾博连', '孙超']），匹配其中一个，
-            # 说明名字带公司/外协等前缀，可能是不同人
-            ambiguous = len(cn_parts) > 1 and cn_parts != [cn]
+            ambiguous = False
+            # 情况1：多个中文片段（如 ['艾博连', '孙超']），带有公司/外协前缀
+            if len(cn_parts) > 1:
+                ambiguous = True
+            else:
+                # 情况2：原始名去掉中文后剩余部分含数字（如 李涛2→李涛），可能是重名
+                remainder = zentao_name
+                for part in cn_parts:
+                    remainder = remainder.replace(part, '', 1)
+                if re.search(r'\d', remainder):
+                    ambiguous = True
             return (cn, ambiguous)
     return (None, False)
 
