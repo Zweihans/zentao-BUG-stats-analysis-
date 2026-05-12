@@ -7,6 +7,10 @@ from app.stores.focus_store import (
     load_focus_pool, merge_into_pool, match_pool_names,
     extract_chinese_names,
 )
+from app.stores.ignored_store import (
+    get_ignored_unfocused, add_ignored_unfocused,
+    get_ignored_ambiguous, add_ignored_ambiguous,
+)
 
 router = APIRouter(tags=["focus"])
 
@@ -228,3 +232,29 @@ async def confirm_ambiguous(data: dict):
 
     save_focus_list(new_focus, project_id if project_id != "default" else None)
     return {"ok": True, "added": len(selected)}
+
+
+# ========== 忽略记录（服务端持久化，不受浏览器/WebView2 影响） ==========
+
+@router.get("/ignored/{project_id}")
+async def get_ignored(project_id: str):
+    return {
+        "unfocused": get_ignored_unfocused(project_id),
+        "ambiguous": get_ignored_ambiguous(project_id),
+    }
+
+
+@router.post("/ignored/{project_id}/unfocused")
+async def save_ignored_unfocused(project_id: str, data: dict):
+    names = data.get('names', [])
+    if names:
+        add_ignored_unfocused(project_id, names)
+    return {"ok": True}
+
+
+@router.post("/ignored/{project_id}/ambiguous")
+async def save_ignored_ambiguous(project_id: str, data: dict):
+    pool_names = data.get('pool_names', [])
+    if pool_names:
+        add_ignored_ambiguous(project_id, pool_names)
+    return {"ok": True}

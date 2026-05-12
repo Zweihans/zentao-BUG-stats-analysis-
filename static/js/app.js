@@ -55,35 +55,73 @@ function getSelectedProjectId(selector) {
 }
 
 // ========== 数据分析页 ==========
-// 按项目持久化"已忽略"的未关注人员（localStorage：关浏览器不丢失）
-// 用户点 × 关闭提醒时记录，忽略过一次就永不再提醒
-function _ignoredKey(projectId) { return 'ignored_unfocused_' + projectId; }
+// ===== 忽略记录：服务端 JSON 文件持久化（不受浏览器/WebView2 切换影响） =====
+var _ignoredUnfocusedCache = {};  // { projectId: [names...] }
+var _ignoredAmbiguousCache = {}; // { projectId: [pool_names...] }
+
 function _getIgnored(projectId) {
-  try { return JSON.parse(localStorage.getItem(_ignoredKey(projectId)) || '[]'); } catch (e) { return []; }
-}
-function _addIgnored(projectId, names) {
-  try {
-    var existing = _getIgnored(projectId);
-    names.forEach(function(n) { if (existing.indexOf(n) === -1) existing.push(n); });
-    localStorage.setItem(_ignoredKey(projectId), JSON.stringify(existing));
-  } catch (e) {}
+  return (_ignoredUnfocusedCache[projectId] || []).slice();
 }
 
-// ========== 重名确认弹窗 ==========
+function _addIgnored(projectId, names) {
+  var existing = _ignoredUnfocusedCache[projectId] || [];
+  names.forEach(function(n) { if (existing.indexOf(n) === -1) existing.push(n); });
+  _ignoredUnfocusedCache[projectId] = existing;
+  // 同步到服务端 + localStorage（兜底）
+  API.post('/ignored/' + projectId + '/unfocused', { names: names }).catch(function(){});
+  try { localStorage.setItem('ignored_unfocused_' + projectId, JSON.stringify(existing)); } catch(e) {}
+}
+
+// 重名确认弹窗
 var _ambiguousData = [];
 var _ambiguousProjectId = '';
 
-// 持久化已跳过的池名（localStorage：关浏览器不丢失）
-function _ignoredAmbiguousKey(projectId) { return 'ignored_ambiguous_' + projectId; }
 function _getIgnoredAmbiguous(projectId) {
-  try { return JSON.parse(localStorage.getItem(_ignoredAmbiguousKey(projectId)) || '[]'); } catch (e) { return []; }
+  return (_ignoredAmbiguousCache[projectId] || []).slice();
 }
+
 function _addIgnoredAmbiguous(projectId, poolNames) {
+  var existing = _ignoredAmbiguousCache[projectId] || [];
+  poolNames.forEach(function(n) { if (existing.indexOf(n) === -1) existing.push(n); });
+  _ignoredAmbiguousCache[projectId] = existing;
+  API.post('/ignored/' + projectId + '/ambiguous', { pool_names: poolNames }).catch(function(){});
+  try { localStorage.setItem('ignored_ambiguous_' + projectId, JSON.stringify(existing)); } catch(e) {}
+}
+
+/** 项目加载时调用：从服务端拉取忽略列表，自动合并 localStorage 遗留数据 */
+async function _loadIgnoredData(projectId) {
   try {
-    var existing = _getIgnoredAmbiguous(projectId);
-    poolNames.forEach(function(n) { if (existing.indexOf(n) === -1) existing.push(n); });
-    localStorage.setItem(_ignoredAmbiguousKey(projectId), JSON.stringify(existing));
-  } catch (e) {}
+    var res = await API.get('/ignored/' + projectId);
+    _ignoredUnfocusedCache[projectId] = res.unfocused || [];
+    _ignoredAmbiguousCache[projectId] = res.ambiguous || [];
+
+    // 迁移 localStorage 中的遗留数据到服务端（一次性）
+    try {
+      var legacyUnfocused = JSON.parse(localStorage.getItem('ignored_unfocused_' + projectId) || '[]');
+      var legacyAmbiguous = JSON.parse(localStorage.getItem('ignored_ambiguous_' + projectId) || '[]');
+      var mergedUnfocused = false, mergedAmbiguous = false;
+      legacyUnfocused.forEach(function(n) {
+        if (_ignoredUnfocusedCache[projectId].indexOf(n) === -1) {
+          _ignoredUnfocusedCache[projectId].push(n); mergedUnfocused = true;
+        }
+      });
+      legacyAmbiguous.forEach(function(n) {
+        if (_ignoredAmbiguousCache[projectId].indexOf(n) === -1) {
+          _ignoredAmbiguousCache[projectId].push(n); mergedAmbiguous = true;
+        }
+      });
+      if (mergedUnfocused) {
+        API.post('/ignored/' + projectId + '/unfocused', { names: legacyUnfocused }).catch(function(){});
+      }
+      if (mergedAmbiguous) {
+        API.post('/ignored/' + projectId + '/ambiguous', { pool_names: legacyAmbiguous }).catch(function(){});
+      }
+    } catch(e) {}
+  } catch(e) {
+    // 服务端不可用时降级到 localStorage
+    _ignoredUnfocusedCache[projectId] = JSON.parse(localStorage.getItem('ignored_unfocused_' + projectId) || '[]');
+    _ignoredAmbiguousCache[projectId] = JSON.parse(localStorage.getItem('ignored_ambiguous_' + projectId) || '[]');
+  }
 }
 
 function showAmbiguousModal(projectId, ambiguousList) {
@@ -265,6 +303,9 @@ function filterBugTable() {
 }
 
 async function loadAnalysisData(projectId) {
+  // 加载服务端忽略列表（自动合并 localStorage 遗留数据）
+  await _loadIgnoredData(projectId);
+
   document.getElementById('analysis-welcome').style.display = 'none';
   document.getElementById('analysis-empty').style.display = 'none';
   const container = document.getElementById('analysis-loaded');
