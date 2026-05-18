@@ -19,10 +19,27 @@
   <a class="nav-item" data-page="config">设置</a>
 
   <div class="sidebar-spacer"></div>
-  <div class="sidebar-footer" id="sidebar-version">v3.1.0</div>
+  <div class="sidebar-footer" id="sidebar-version">v3.7.0</div>
 </nav>
 
 <main class="main">
+
+  <!-- 全局通知横幅（跨页面可见） -->
+  <div id="schedule-notify-banner" class="banner banner-info" style="display:none; margin:12px 16px 0;">
+    <span class="banner-icon info">i</span>
+    <div style="flex:1; font-size:12px; line-height:1.5;">
+      <span id="schedule-notify-text"></span>
+    </div>
+    <button onclick="dismissScheduleNotify()" class="banner-dismiss">&times;</button>
+  </div>
+  <div id="cookie-warn-banner" class="banner banner-warning" style="display:none; margin:0 16px;">
+    <span class="banner-icon warning">!</span>
+    <div style="flex:1; font-size:12px; line-height:1.5;">
+      <span id="cookie-warn-text"></span>
+    </div>
+    <div style="display:flex; gap:6px; align-items:center;" id="cookie-warn-actions"></div>
+    <button onclick="dismissCookieWarn()" class="banner-dismiss">&times;</button>
+  </div>
 
   <!-- ======== 数据分析页 ======== -->
   <div class="page active" id="page-analysis">
@@ -43,8 +60,8 @@
     </div>
 
     <div class="page-content" id="analysis-content">
-      <div id="stale-alert" class="banner banner-warning" style="display:none; margin-bottom:8px; align-items:center; gap:10px;">
-        <span style="font-size:14px;">&#128339;</span>
+      <div id="stale-alert" class="banner banner-warning" style="display:none; margin-bottom:8px;">
+        <span class="banner-icon warning">!</span>
         <div style="flex:1; font-size:12px; line-height:1.5;">
           <span style="font-weight:600;">数据可能已过期</span>
           <span style="color:var(--slate);"> · 更新于 <span id="stale-date"></span></span>
@@ -52,7 +69,7 @@
         <button class="btn btn-sm" style="background:var(--near-black); color:#fff; border:none; padding:4px 14px; border-radius:5px; cursor:pointer; font-size:11px;" onclick="refreshCurrentProject()">立即刷新</button>
       </div>
       <div id="unfocused-alert" class="banner banner-warning" style="display:none; margin-bottom:12px; align-items:flex-start; gap:10px; position:relative;">
-        <span style="font-size:14px;">&#9888;</span>
+        <span class="banner-icon warning">!</span>
         <div style="flex:1; font-size:12px; line-height:1.5;">
           <span style="font-weight:600;">发现有新人员存在 BUG 但未加入关注列表：</span>
           <span id="unfocused-names" style="color:var(--slate);"></span>
@@ -157,6 +174,10 @@
           <button class="btn btn-primary btn-lg" id="btn-start-batch">开始下载</button>
           <button class="btn btn-secondary" id="btn-cancel-batch" style="display:none;">取消</button>
         </div>
+        <div id="batch-goto-analysis" style="display:none; margin-top:20px; padding:16px 20px; background:#e8f0fe; border-radius:8px; border:1px solid #c4d7f2;">
+          <span style="font-size:13px; font-weight:600; color:var(--near-black);">下载完成，可前往分析：</span>
+          <span id="batch-goto-links" style="font-size:12px; color:var(--link-cobalt);"></span>
+        </div>
       </div>
     </div>
   </div>
@@ -184,8 +205,9 @@
   <div class="page" id="page-config">
     <div class="page-content">
       <div style="max-width:640px; width:100%; margin:0 auto; display:flex; flex-direction:column; gap:24px;">
-        <div class="card" style="padding:28px;">
-          <h3 style="font-size:16px; font-weight:600; margin-bottom:4px; letter-spacing:-0.3px;">Cookie 配置</h3>
+        <div class="section-group-title">禅道连接</div>
+        <div class="card card-interactive" style="padding:28px;">
+          <h3 style="font-size:16px; font-weight:600; margin-bottom:4px; letter-spacing:-0.5px;">Cookie 配置</h3>
           <p style="font-size:12px; color:var(--silver); margin-bottom:12px;">浏览器 F12 → Application → Cookies → 复制 zentaosid 的值</p>
           <div style="display:flex; gap:8px; margin-bottom:10px;">
             <input type="text" id="config-cookie" placeholder="粘贴 zentaosid 值..." style="flex:1;">
@@ -196,8 +218,8 @@
             <span id="config-cookie-result" style="font-size:12px;"></span>
           </div>
         </div>
-        <div class="card" style="padding:28px;">
-          <h3 style="font-size:16px; font-weight:600; margin-bottom:4px; letter-spacing:-0.3px;">数据过期设置</h3>
+        <div class="card card-interactive" style="padding:28px;">
+          <h3 style="font-size:16px; font-weight:600; margin-bottom:4px; letter-spacing:-0.5px;">数据过期设置</h3>
           <p style="font-size:12px; color:var(--silver); margin-bottom:12px;">导入的数据文件超过设置的小时数后，分析页将显示过期警告</p>
           <div style="display:flex; gap:8px; margin-bottom:10px; align-items:center;">
             <input type="number" id="config-expiration" min="1" max="720" step="1" style="width:100px;" placeholder="小时数">
@@ -206,8 +228,9 @@
           </div>
           <div id="config-expiration-result" style="font-size:12px;"></div>
         </div>
-        <div class="card" style="padding:28px;">
-          <h3 style="font-size:16px; font-weight:600; margin-bottom:4px; letter-spacing:-0.3px;">定时自动下载</h3>
+        <div class="section-group-title">AI 与自动化</div>
+        <div class="card card-interactive" style="padding:28px;">
+          <h3 style="font-size:16px; font-weight:600; margin-bottom:4px; letter-spacing:-0.5px;">定时自动下载</h3>
           <p style="font-size:12px; color:var(--silver); margin-bottom:12px;">每天自动下载所有关注项目的最新 BUG 数据，无需手动操作</p>
           <div style="display:flex; gap:8px; margin-bottom:10px; align-items:center; flex-wrap:wrap;">
             <label style="display:flex; align-items:center; gap:6px; font-size:13px; cursor:pointer;">
@@ -220,8 +243,8 @@
           <div id="config-schedule-result" style="font-size:12px;"></div>
           <div style="font-size:11px; color:var(--silver); margin-top:6px;">自动下载所有标记为"关注"的项目，下载日志见 logs/scheduler.log</div>
         </div>
-        <div class="card" style="padding:28px;">
-          <h3 style="font-size:16px; font-weight:600; margin-bottom:4px; letter-spacing:-0.3px;">AI 文案配置</h3>
+        <div class="card card-interactive" style="padding:28px;">
+          <h3 style="font-size:16px; font-weight:600; margin-bottom:4px; letter-spacing:-0.5px;">AI 文案配置</h3>
           <p style="font-size:12px; color:var(--silver); margin-bottom:12px;">用于催办、周报等 AI 文案生成功能（兼容 OpenAI / DeepSeek 等接口）</p>
           <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:10px;">
             <input type="text" id="config-ai-base-url" placeholder="API 地址，如 https://api.deepseek.com/v1" style="padding:6px 10px; border:1px solid var(--input-border); border-radius:var(--radius-input); font-size:12px;">
@@ -237,8 +260,8 @@
           </div>
           <div style="font-size:10px; color:var(--silver); margin-top:6px;">API Key 明文保存在项目目录的 .env 文件中，请注意文件权限</div>
         </div>
-        <div class="card" style="padding:28px;">
-          <h3 style="font-size:16px; font-weight:600; margin-bottom:4px; letter-spacing:-0.3px;">全局关注人员池</h3>
+        <div class="card card-interactive" style="padding:28px;">
+          <h3 style="font-size:16px; font-weight:600; margin-bottom:4px; letter-spacing:-0.5px;">全局关注人员池</h3>
           <p style="font-size:12px; color:var(--silver); margin-bottom:12px;">导入飞书等导出的 Excel/CSV 文件（可含多个 sheet），自动提取各 sheet"姓名"列。分析数据时自动匹配并关注。</p>
           <div style="display:flex; gap:8px; margin-bottom:10px; align-items:center; flex-wrap:wrap;">
             <input type="file" id="config-pool-file" accept=".xlsx,.csv" style="font-size:12px; flex:1; min-width:200px;">
@@ -249,14 +272,15 @@
           </div>
           <div id="config-pool-result" style="font-size:12px; margin-top:6px;"></div>
         </div>
-        <div class="card" style="padding:28px;">
-          <h3 style="font-size:16px; font-weight:600; margin-bottom:4px; letter-spacing:-0.3px;">服务管理</h3>
+        <div class="section-group-title">系统</div>
+        <div class="card card-interactive" style="padding:28px;">
+          <h3 style="font-size:16px; font-weight:600; margin-bottom:4px; letter-spacing:-0.5px;">服务管理</h3>
           <p style="font-size:12px; color:var(--silver); margin-bottom:12px;">修改代码或配置后需要重启才能生效</p>
           <button class="btn btn-primary btn-sm" id="btn-config-restart">重启服务</button>
           <span id="config-restart-result" style="font-size:12px; margin-left:10px;"></span>
         </div>
-        <div class="card" style="padding:28px;">
-          <h3 style="font-size:16px; font-weight:600; margin-bottom:4px; letter-spacing:-0.3px;">缓存管理</h3>
+        <div class="card card-interactive" style="padding:28px;">
+          <h3 style="font-size:16px; font-weight:600; margin-bottom:4px; letter-spacing:-0.5px;">缓存管理</h3>
           <p style="font-size:12px; color:var(--silver); margin-bottom:12px;">下载的历史文件占用磁盘空间，可定期清理</p>
           <div style="display:flex; gap:12px; align-items:center;">
             <span style="font-size:14px; font-weight:500;" id="config-cache-info">加载中...</span>
@@ -467,9 +491,9 @@
   </div>
 </div>
 
-<script src="/static/js/api.js?v=3.6.0"></script>
-<script src="/static/js/app.js?v=3.6.0"></script>
-<script src="/static/js/batch.js?v=3.6.0"></script>
-<script src="/static/js/settings.js?v=3.6.0"></script>
+<script src="/static/js/api.js?v=3.9.0"></script>
+<script src="/static/js/app.js?v=3.9.0"></script>
+<script src="/static/js/batch.js?v=3.9.0"></script>
+<script src="/static/js/settings.js?v=3.9.0"></script>
 </body>
 </html>

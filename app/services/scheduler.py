@@ -2,7 +2,6 @@
 import os
 import queue
 import threading
-import asyncio
 from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -22,17 +21,20 @@ def _run_scheduled_import_all():
     from app.services.cookie_manager import get_cookie, has_cookie
     if not has_cookie():
         _log("system", "没有 Cookie，跳过")
+        _save_schedule_result({"ok": False, "error": "no_cookie", "time": datetime.now().isoformat()})
         return
 
     from app.stores.project_store import load_projects
     projects = [p for p in load_projects() if p.get('focus')]
     if not projects:
         _log("system", "没有关注项目，跳过")
+        _save_schedule_result({"ok": False, "error": "no_focus_projects", "time": datetime.now().isoformat()})
         return
 
     cookie = get_cookie()
     from app.api.import_api import _run_import
 
+    results = []
     for p in projects:
         pid = p['id']
         pname = p.get('name', pid)
@@ -47,15 +49,29 @@ def _run_scheduled_import_all():
                     msg = q.get(timeout=1)
                     if isinstance(msg, dict) and msg.get('type') == 'complete':
                         _log(pid, f"完成 ({pname})")
+                        results.append({"project_id": pid, "name": pname, "status": "ok", "filename": msg.get('filename', '')})
                         break
                     if isinstance(msg, dict) and msg.get('type') == 'error':
                         _log(pid, f"失败 ({pname}): {msg.get('message', '未知')}")
+                        results.append({"project_id": pid, "name": pname, "status": "error", "message": msg.get('message', '未知')})
                         break
                 except queue.Empty:
                     pass
             t.join()
         except Exception as e:
             _log(pid, f"异常 ({pname}): {e}")
+            results.append({"project_id": pid, "name": pname, "status": "error", "message": str(e)})
+
+    ok_count = sum(1 for r in results if r['status'] == 'ok')
+    fail_count = sum(1 for r in results if r['status'] == 'error')
+    _save_schedule_result({
+        "ok": fail_count == 0,
+        "time": datetime.now().isoformat(),
+        "ok_count": ok_count,
+        "fail_count": fail_count,
+        "total": len(results),
+        "results": results,
+    })
 
 
 def _log(project_id: str, message: str):
@@ -112,6 +128,39 @@ def start_scheduler():
     if not scheduler.running:
         scheduler.start()
         refresh_schedule()
+
+
+def _save_schedule_result(result: dict):
+    """保存定时任务结果到 JSON 文件，供前端轮询"""
+    import json
+    os.makedirs(LOG_DIR, exist_ok=True)
+    result_file = os.path.join(LOG_DIR, "last_schedule_result.json")
+    try:
+        with open(result_file, 'w', encoding='utf-8') as f:
+            json.dump(result, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def load_schedule_result() -> dict | None:
+    """读取最近一次定时任务结果"""
+    import json
+    result_file = os.path.join(LOG_DIR, "last_schedule_result.json")
+    if not os.path.exists(result_file):
+        return None
+    try:
+        with open(result_file, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def dismiss_schedule_notification():
+    """将当前定时结果标记为已关闭"""
+    result = load_schedule_result()
+    if result and result.get('time'):
+        result['dismissed_time'] = result['time']
+        _save_schedule_result(result)
 
 
 def stop_scheduler():

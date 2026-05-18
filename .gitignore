@@ -13,3 +13,6 @@ logs/
 .env
 .webview2_profile/
 ignored_*.json
+feishu_names.json
+focus_list.json
+focus_pool.json

@@ -21,6 +21,10 @@ function navigateTo(pageName) {
     var pid = getSelectedProjectId('#project-select');
     if (pid) loadAnalysisData(pid);
   }
+  // 进入下载页时重新检查 cookie 状态
+  if (pageName === 'batch') {
+    checkCookieWarn();
+  }
 }
 
 document.querySelectorAll('.nav-item').forEach(item => {
@@ -1904,19 +1908,7 @@ function generateEmailHTML(projectId) {
     return bActive - aActive;
   });
 
-  // 环比数据（找最后两条不同日期的记录对比，同天多次导入不产生假环比）
-  var prevMap = {};
-  if (_emailTrendData && _emailTrendData.records && _emailTrendData.records.length >= 2) {
-    var records = _emailTrendData.records;
-    var latestDate = records[records.length - 1].date;
-    var prevRecord = null;
-    for (var i = records.length - 2; i >= 0; i--) {
-      if (records[i].date !== latestDate) { prevRecord = records[i]; break; }
-    }
-    if (prevRecord) {
-      (prevRecord.persons || []).forEach(function(p) { prevMap[p.name] = p.active || 0; });
-    }
-  }
+  // 环比数据已移除
 
   var totalActive = 0;
   var totalS = 0;
@@ -1928,23 +1920,7 @@ function generateEmailHTML(projectId) {
     totalA += p.A || 0;
     totalNew += p.new_count || 0;
   });
-  // 激活环比变化（对比最后两条不同日期的记录）
-  var activeDelta = null;
-  if (_emailTrendData && _emailTrendData.records && _emailTrendData.records.length >= 2) {
-    var records = _emailTrendData.records;
-    var latestDate = records[records.length - 1].date;
-    var prevRecord = null;
-    for (var i = records.length - 2; i >= 0; i--) {
-      if (records[i].date !== latestDate) { prevRecord = records[i]; break; }
-    }
-    if (prevRecord) {
-      var prevActiveTotal = 0;
-      (prevRecord.persons || []).forEach(function(p) {
-        if (focusPersons.some(function(fp) { return fp.name === p.name; })) prevActiveTotal += (p.active || 0);
-      });
-      activeDelta = totalActive - prevActiveTotal;
-    }
-  }
+  // 激活环比变化已移除
 
   var maxActive = 0;
   focusPersons.forEach(function(p) { if (p.active > maxActive) maxActive = p.active; });
@@ -1974,29 +1950,19 @@ function generateEmailHTML(projectId) {
   // 总览卡片
   var totalB = focusPersons.reduce(function(s,p){return s+(p.B||0);},0);
   var totalC = focusPersons.reduce(function(s,p){return s+(p.C||0);},0);
-  var deltaNum = activeDelta !== null ? activeDelta : 0;
-  var hasDelta = activeDelta !== null;
-  var deltaAbs = Math.abs(deltaNum);
-  var deltaSign = hasDelta ? (deltaNum >= 0 ? '+' : '-') : '';
-  var deltaColor = !hasDelta ? '#4b5563' : (deltaNum > 0 ? '#d93025' : (deltaNum < 0 ? '#16a34a' : '#4b5563'));
-
   html += '<table style="width:100%;border-collapse:collapse;margin-bottom:24px;background:#f8fafc;border-left:3px solid #1e40af;" cellpadding="0" cellspacing="0" border="0">';
 
   // 第一行：关键指标
   html += '<tr>';
-  html += '<td style="width:50%;padding:18px 14px 8px 14px;text-align:center;">';
+  html += '<td style="padding:18px 14px 8px 14px;text-align:center;">';
   html += '<div style="font-size:10px;color:#4b5563;letter-spacing:1px;margin-bottom:2px;">激活 BUG</div>';
   html += '<div style="font-size:28px;font-weight:700;color:#1e40af;line-height:1;">' + totalActive + '</div>';
-  html += '</td>';
-  html += '<td style="width:50%;padding:18px 14px 8px 14px;text-align:center;">';
-  html += '<div style="font-size:10px;color:#4b5563;letter-spacing:1px;margin-bottom:2px;">较上期</div>';
-  html += '<div style="font-size:28px;font-weight:700;color:' + deltaColor + ';line-height:1;">' + (hasDelta ? deltaSign + deltaAbs : '-') + '</div>';
   html += '</td>';
   html += '</tr>';
 
   // 第二行：严重级别分布
   html += '<tr>';
-  html += '<td colspan="3" style="padding:4px 14px 14px 14px;text-align:center;">';
+  html += '<td colspan="2" style="padding:4px 14px 14px 14px;text-align:center;">';
   html += '<span style="display:inline-block;min-width:40px;height:22px;line-height:22px;background:#1e40af;color:#fff;border-radius:3px;font-size:11px;font-weight:600;margin:0 4px;">S ' + totalS + '</span>';
   html += '<span style="display:inline-block;min-width:40px;height:22px;line-height:22px;background:#3b82f6;color:#fff;border-radius:3px;font-size:11px;font-weight:600;margin:0 4px;">A ' + totalA + '</span>';
   html += '<span style="display:inline-block;min-width:40px;height:22px;line-height:22px;background:#64748b;color:#fff;border-radius:3px;font-size:11px;font-weight:600;margin:0 4px;">B ' + totalB + '</span>';
@@ -2011,7 +1977,6 @@ function generateEmailHTML(projectId) {
   html += '<thead><tr style="border-bottom:2px solid #1e40af;">';
   html += '<th style="text-align:left;padding:8px 10px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;text-transform:uppercase;">人员</th>';
   html += '<th style="text-align:center;padding:8px 4px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;text-transform:uppercase;width:42px;">激活</th>';
-  html += '<th style="text-align:center;padding:8px 4px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;text-transform:uppercase;width:42px;">变化</th>';
   html += '<th style="text-align:center;padding:8px 4px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;text-transform:uppercase;width:38px;">S</th>';
   html += '<th style="text-align:center;padding:8px 4px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;text-transform:uppercase;width:38px;">A</th>';
   html += '<th style="text-align:center;padding:8px 4px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;text-transform:uppercase;width:38px;">B</th>';
@@ -2019,28 +1984,18 @@ function generateEmailHTML(projectId) {
   html += '</tr></thead><tbody>';
 
   focusPersons.forEach(function(p, idx) {
-    var prevActive = prevMap[p.name];
-    var delta = prevActive !== undefined ? (p.active || 0) - prevActive : null;
-    var deltaStr = '-';
-    var deltaColor = '#6b7280';
-    if (delta !== null) {
-      if (delta > 0) { deltaStr = '+' + delta; deltaColor = '#d93025'; }
-      else if (delta < 0) { deltaStr = '' + delta; deltaColor = '#16a34a'; }
-      else { deltaStr = '0'; deltaColor = '#6b7280'; }
-    }
     var barPct = maxActive > 0 ? Math.round((p.active || 0) / maxActive * 100) : 0;
     var rowBg = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
 
     html += '<tr style="background:' + rowBg + ';">';
     html += '<td style="padding:9px 10px;font-weight:600;font-size:13px;border-bottom:1px solid #eef0f2;">' + escHtml(p.name) + '</td>';
     html += '<td style="text-align:center;padding:9px 4px;font-weight:600;font-size:13px;border-bottom:1px solid #eef0f2;">' + (p.active || 0) + '</td>';
-    html += '<td style="text-align:center;padding:9px 4px;font-size:11px;font-weight:500;color:' + deltaColor + ';border-bottom:1px solid #eef0f2;">' + deltaStr + '</td>';
     html += '<td style="text-align:center;padding:9px 4px;border-bottom:1px solid #eef0f2;"><span style="display:inline-block;min-width:22px;height:20px;line-height:20px;background:#1e40af;color:#fff;border-radius:3px;font-size:11px;font-weight:600;">' + (p.S || 0) + '</span></td>';
     html += '<td style="text-align:center;padding:9px 4px;border-bottom:1px solid #eef0f2;"><span style="display:inline-block;min-width:22px;height:20px;line-height:20px;background:#3b82f6;color:#fff;border-radius:3px;font-size:11px;font-weight:600;">' + (p.A || 0) + '</span></td>';
     html += '<td style="text-align:center;padding:9px 4px;border-bottom:1px solid #eef0f2;"><span style="display:inline-block;min-width:22px;height:20px;line-height:20px;background:#64748b;color:#fff;border-radius:3px;font-size:11px;font-weight:600;">' + (p.B || 0) + '</span></td>';
     html += '<td style="text-align:center;padding:9px 4px;border-bottom:1px solid #eef0f2;"><span style="display:inline-block;min-width:22px;height:20px;line-height:20px;background:#6b7280;color:#fff;border-radius:3px;font-size:11px;font-weight:600;">' + (p.C || 0) + '</span></td>';
     html += '</tr>';
-    html += '<tr style="background:' + rowBg + ';"><td colspan="7" style="padding:0 10px 6px 10px;border-bottom:1px solid #eef0f2;">';
+    html += '<tr style="background:' + rowBg + ';"><td colspan="6" style="padding:0 10px 6px 10px;border-bottom:1px solid #eef0f2;">';
     html += '<div style="height:3px;background:#eef0f2;border-radius:0 2px 2px 0;">';
     html += '<div style="height:100%;width:' + barPct + '%;background:#2563eb;border-radius:0 2px 2px 0;min-width:' + (barPct > 0 ? '2px' : '0') + ';"></div>';
     html += '</div></td></tr>';
@@ -2140,26 +2095,7 @@ function generateWeeklyHTML(projectId, newBugIds) {
     });
   });
 
-  // 环比数据（对比最后两条不同日期的趋势记录）
-  var prevMap = {};
-  var activeDelta = null;
-  if (_emailTrendData && _emailTrendData.records && _emailTrendData.records.length >= 2) {
-    var records = _emailTrendData.records;
-    var latestDate = records[records.length - 1].date;
-    var prevRecord = null;
-    for (var i = records.length - 2; i >= 0; i--) {
-      if (records[i].date !== latestDate) { prevRecord = records[i]; break; }
-    }
-    if (prevRecord) {
-      (prevRecord.persons || []).forEach(function(p) { prevMap[p.name] = p.active || 0; });
-      var prevActiveTotal = 0;
-      (prevRecord.persons || []).forEach(function(p) {
-        if (focusPersons.some(function(fp) { return fp.name === p.name; })) prevActiveTotal += (p.active || 0);
-      });
-      var curActiveTotal = focusPersons.reduce(function(s, p) { return s + (p.active || 0); }, 0);
-      activeDelta = curActiveTotal - prevActiveTotal;
-    }
-  }
+  // 环比数据已移除
 
   var totalActive = focusPersons.reduce(function(s, p) { return s + (p.active || 0); }, 0);
   var totalS = focusPersons.reduce(function(s, p) { return s + (p.S || 0); }, 0);
@@ -2179,29 +2115,19 @@ function generateWeeklyHTML(projectId, newBugIds) {
   html += '</td></tr></table>';
 
   // 总览卡片
-  var deltaNum = activeDelta !== null ? activeDelta : 0;
-  var hasDelta = activeDelta !== null;
-  var deltaAbs = Math.abs(deltaNum);
-  var deltaSign = hasDelta ? (deltaNum >= 0 ? '+' : '-') : '';
-  var deltaColor = !hasDelta ? '#4b5563' : (deltaNum > 0 ? '#d93025' : (deltaNum < 0 ? '#16a34a' : '#4b5563'));
-
   html += '<table style="width:100%;border-collapse:collapse;margin-bottom:24px;background:#f8fafc;border-left:3px solid #1e40af;" cellpadding="0" cellspacing="0" border="0">';
   html += '<tr>';
-  html += '<td style="width:33%;padding:18px 14px 8px 14px;text-align:center;">';
+  html += '<td style="width:50%;padding:18px 14px 8px 14px;text-align:center;">';
   html += '<div style="font-size:10px;color:#4b5563;letter-spacing:1px;margin-bottom:2px;">激活 BUG</div>';
   html += '<div style="font-size:28px;font-weight:700;color:#1e40af;line-height:1;">' + totalActive + '</div>';
   html += '</td>';
-  html += '<td style="width:33%;padding:18px 14px 8px 14px;text-align:center;">';
+  html += '<td style="width:50%;padding:18px 14px 8px 14px;text-align:center;">';
   html += '<div style="font-size:10px;color:#4b5563;letter-spacing:1px;margin-bottom:2px;">本周新增</div>';
   html += '<div style="font-size:28px;font-weight:700;color:#3b82f6;line-height:1;">' + (newBugs.length || 0) + '</div>';
   html += '</td>';
-  html += '<td style="width:33%;padding:18px 14px 8px 14px;text-align:center;">';
-  html += '<div style="font-size:10px;color:#4b5563;letter-spacing:1px;margin-bottom:2px;">较上期</div>';
-  html += '<div style="font-size:28px;font-weight:700;color:' + deltaColor + ';line-height:1;">' + (hasDelta ? deltaSign + deltaAbs : '-') + '</div>';
-  html += '</td>';
   html += '</tr>';
   html += '<tr>';
-  html += '<td colspan="3" style="padding:4px 14px 14px 14px;text-align:center;">';
+  html += '<td colspan="2" style="padding:4px 14px 14px 14px;text-align:center;">';
   html += '<span style="display:inline-block;min-width:40px;height:22px;line-height:22px;background:#1e40af;color:#fff;border-radius:3px;font-size:11px;font-weight:600;margin:0 4px;">S ' + totalS + '</span>';
   html += '<span style="display:inline-block;min-width:40px;height:22px;line-height:22px;background:#3b82f6;color:#fff;border-radius:3px;font-size:11px;font-weight:600;margin:0 4px;">A ' + totalA + '</span>';
   html += '<span style="display:inline-block;min-width:40px;height:22px;line-height:22px;background:#64748b;color:#fff;border-radius:3px;font-size:11px;font-weight:600;margin:0 4px;">B ' + totalB + '</span>';
@@ -2213,7 +2139,6 @@ function generateWeeklyHTML(projectId, newBugIds) {
   html += '<thead><tr style="border-bottom:2px solid #1e40af;">';
   html += '<th style="text-align:left;padding:8px 10px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;">人员</th>';
   html += '<th style="text-align:center;padding:8px 4px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;width:42px;">激活</th>';
-  html += '<th style="text-align:center;padding:8px 4px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;width:42px;">变化</th>';
   html += '<th style="text-align:center;padding:8px 4px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;width:38px;">S</th>';
   html += '<th style="text-align:center;padding:8px 4px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;width:38px;">A</th>';
   html += '<th style="text-align:center;padding:8px 4px;font-size:10px;color:#4b5563;font-weight:600;letter-spacing:1px;width:38px;">B</th>';
@@ -2221,28 +2146,18 @@ function generateWeeklyHTML(projectId, newBugIds) {
   html += '</tr></thead><tbody>';
 
   focusPersons.forEach(function(p, idx) {
-    var prevActive = prevMap[p.name];
-    var delta = prevActive !== undefined ? (p.active || 0) - prevActive : null;
-    var deltaStr = '-';
-    var pdColor = '#6b7280';
-    if (delta !== null) {
-      if (delta > 0) { deltaStr = '+' + delta; pdColor = '#d93025'; }
-      else if (delta < 0) { deltaStr = '' + delta; pdColor = '#16a34a'; }
-      else { deltaStr = '0'; pdColor = '#6b7280'; }
-    }
     var barPct = maxActive > 0 ? Math.round((p.active || 0) / maxActive * 100) : 0;
     var rowBg = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
 
     html += '<tr style="background:' + rowBg + ';">';
     html += '<td style="padding:9px 10px;font-weight:600;font-size:13px;border-bottom:1px solid #eef0f2;">' + escHtml(p.name) + '</td>';
     html += '<td style="text-align:center;padding:9px 4px;font-weight:600;font-size:13px;border-bottom:1px solid #eef0f2;">' + (p.active || 0) + '</td>';
-    html += '<td style="text-align:center;padding:9px 4px;font-size:11px;font-weight:500;color:' + pdColor + ';border-bottom:1px solid #eef0f2;">' + deltaStr + '</td>';
     html += '<td style="text-align:center;padding:9px 4px;border-bottom:1px solid #eef0f2;"><span style="display:inline-block;min-width:22px;height:20px;line-height:20px;background:#1e40af;color:#fff;border-radius:3px;font-size:11px;font-weight:600;">' + (p.S || 0) + '</span></td>';
     html += '<td style="text-align:center;padding:9px 4px;border-bottom:1px solid #eef0f2;"><span style="display:inline-block;min-width:22px;height:20px;line-height:20px;background:#3b82f6;color:#fff;border-radius:3px;font-size:11px;font-weight:600;">' + (p.A || 0) + '</span></td>';
     html += '<td style="text-align:center;padding:9px 4px;border-bottom:1px solid #eef0f2;"><span style="display:inline-block;min-width:22px;height:20px;line-height:20px;background:#64748b;color:#fff;border-radius:3px;font-size:11px;font-weight:600;">' + (p.B || 0) + '</span></td>';
     html += '<td style="text-align:center;padding:9px 4px;border-bottom:1px solid #eef0f2;"><span style="display:inline-block;min-width:22px;height:20px;line-height:20px;background:#6b7280;color:#fff;border-radius:3px;font-size:11px;font-weight:600;">' + (p.C || 0) + '</span></td>';
     html += '</tr>';
-    html += '<tr style="background:' + rowBg + ';"><td colspan="7" style="padding:0 10px 6px 10px;border-bottom:1px solid #eef0f2;">';
+    html += '<tr style="background:' + rowBg + ';"><td colspan="6" style="padding:0 10px 6px 10px;border-bottom:1px solid #eef0f2;">';
     html += '<div style="height:3px;background:#eef0f2;border-radius:0 2px 2px 0;">';
     html += '<div style="height:100%;width:' + barPct + '%;background:#2563eb;border-radius:0 2px 2px 0;min-width:' + (barPct > 0 ? '2px' : '0') + ';"></div>';
     html += '</div></td></tr>';
@@ -2478,6 +2393,85 @@ document.getElementById('btn-download-trend-png').addEventListener('click', func
 });
 
 // ========== 初始化 ==========
+// 定时任务通知轮询
+function pollScheduleResult() {
+  API.get('/schedule/last-result').then(function(result) {
+    if (!result || !result.time) return;
+    // 服务端持久化的关闭标记，跨重启可靠
+    if (result.dismissed_time && result.dismissed_time >= result.time) return;
+
+    var banner = document.getElementById('schedule-notify-banner');
+    var textEl = document.getElementById('schedule-notify-text');
+    if (!banner || !textEl) return;
+
+    var okCount = result.ok_count || 0;
+    var failCount = result.fail_count || 0;
+    var results = result.results || [];
+    var parts = ['定时下载完成: ' + okCount + ' 成功'];
+    if (failCount > 0) parts.push(failCount + ' 失败');
+    if (results.length > 0) {
+      parts.push('(' + results.map(function(r) { return r.name || r.project_id; }).join(', ') + ')');
+    }
+    textEl.textContent = parts.join(' · ');
+
+    if (failCount > 0) {
+      banner.style.background = '#fef3c7';
+      banner.style.borderColor = '#f59e0b';
+    } else {
+      banner.style.background = '#e8f0fe';
+      banner.style.borderColor = '#c4d7f2';
+    }
+    banner.style.display = 'flex';
+  }).catch(function() {});
+}
+
+function dismissScheduleNotify() {
+  document.getElementById('schedule-notify-banner').style.display = 'none';
+  API.post('/schedule/dismiss').catch(function() {});
+}
+
+// Cookie 预警
+function checkCookieWarn() {
+  API.get('/cookie/status').then(function(status) {
+    var banner = document.getElementById('cookie-warn-banner');
+    var textEl = document.getElementById('cookie-warn-text');
+    var actionsEl = document.getElementById('cookie-warn-actions');
+    if (!banner || !textEl) return;
+
+    if (!status.has_cookie) {
+      textEl.textContent = '尚未配置 Cookie，无法下载 BUG 数据。请前往设置页配置。';
+      actionsEl.innerHTML = '<button class="btn btn-primary btn-sm" onclick="navigateTo(\'config\');return false;">前往设置</button>';
+      if (!status.dismissed_at) banner.style.display = 'flex';
+    } else if (status.valid === false && status.last_checked) {
+      textEl.textContent = 'Cookie 已失效 (' + (status.message || '请更新') + ')，数据下载将失败。';
+      actionsEl.innerHTML = '<button class="btn btn-primary btn-sm" onclick="navigateTo(\'config\');return false;">更新 Cookie</button>';
+      if (!status.dismissed_at) banner.style.display = 'flex';
+    } else if (status.valid === null && !status.last_checked) {
+      if ((location.hash || '').replace('#', '') === 'batch') {
+        textEl.textContent = 'Cookie 尚未验证，建议先检测是否有效。';
+        actionsEl.innerHTML = '<button class="btn btn-secondary btn-sm" onclick="navigateTo(\'config\');return false;">去检测</button>';
+        banner.style.background = '#fef3c7';
+        banner.style.borderColor = '#f59e0b';
+        if (!status.dismissed_at) banner.style.display = 'flex';
+      }
+    } else {
+      banner.style.display = 'none';
+    }
+  }).catch(function() {});
+}
+
+function dismissCookieWarn() {
+  document.getElementById('cookie-warn-banner').style.display = 'none';
+  API.post('/cookie/dismiss').catch(function() {});
+}
+
+// 批量下载完成后跳转到指定项目分析页
+function gotoAnalysis(projectId) {
+  var sel = document.getElementById('project-select');
+  if (sel) sel.value = projectId;
+  navigateTo('analysis');
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   // URL hash 路由：恢复上次页面
   const hash = (location.hash || '').replace('#', '');
@@ -2487,6 +2481,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   await populateProjectSelects();
+
+  // 启动定时下载通知轮询（每 60 秒）
+  pollScheduleResult();
+  setInterval(pollScheduleResult, 60000);
+
+  // 检查 cookie 状态（在下载页时提示）
+  checkCookieWarn();
 
   // 只在数据分析页（或无 hash）时尝试恢复上次项目
   const currentHash = (location.hash || '').replace('#', '');

@@ -68,10 +68,7 @@ def call_ai(system_prompt: str, user_prompt: str, temperature: float = 0.7, max_
         for block in data.get("content", []):
             if block.get("type") == "text":
                 return block["text"]
-        try:
-            return data["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError):
-            raise Exception(f"未知响应格式: {json.dumps(data, ensure_ascii=False)[:500]}")
+        raise Exception(f"AI 响应中未找到文本内容: {json.dumps(data, ensure_ascii=False)[:300]}")
     else:
         return data["choices"][0]["message"]["content"]
 

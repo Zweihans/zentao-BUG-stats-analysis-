@@ -84,11 +84,14 @@ def verify_cookie(cookie_str: str) -> tuple[bool, str]:
         else:
             result = (True, "Cookie 有效")
 
+        update_cookie_status(result[0], result[1])
         page.close()
         return result
 
     except Exception as e:
-        return (False, f"连接失败: {e}")
+        msg = f"连接失败: {e}"
+        update_cookie_status(False, msg)
+        return (False, msg)
     finally:
         if context:
             try: context.close()
@@ -103,3 +106,66 @@ def verify_cookie(cookie_str: str) -> tuple[bool, str]:
 
 def has_cookie() -> bool:
     return get_cookie() is not None
+
+
+# 缓存 cookie 检测结果，避免每次页面加载都启动 Playwright
+_cookie_status_cache = {"valid": None, "last_checked": None, "message": "", "dismissed_at": None}
+_status_file = os.path.join(BASE_DIR, "logs", "cookie_status.json")
+
+
+def _load_cookie_status_from_disk():
+    """从磁盘恢复 cookie 验证状态（避免重启后丢失）"""
+    import json as _json
+    if os.path.exists(_status_file):
+        try:
+            with open(_status_file, 'r', encoding='utf-8') as f:
+                data = _json.load(f)
+            _cookie_status_cache["valid"] = data.get("valid")
+            _cookie_status_cache["last_checked"] = data.get("last_checked")
+            _cookie_status_cache["message"] = data.get("message", "")
+            _cookie_status_cache["dismissed_at"] = data.get("dismissed_at")
+        except Exception:
+            pass
+
+
+def _save_cookie_status_to_disk():
+    """持久化 cookie 验证状态"""
+    import json as _json
+    os.makedirs(os.path.dirname(_status_file), exist_ok=True)
+    try:
+        with open(_status_file, 'w', encoding='utf-8') as f:
+            _json.dump(_cookie_status_cache, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+_load_cookie_status_from_disk()
+
+
+def get_cookie_status() -> dict:
+    """获取 cookie 状态（轻量，不触发 Playwright）"""
+    if not has_cookie():
+        return {"has_cookie": False, "valid": False, "last_checked": None, "message": "尚未配置 Cookie，无法下载数据"}
+    return {
+        "has_cookie": True,
+        "valid": _cookie_status_cache["valid"],
+        "last_checked": _cookie_status_cache["last_checked"],
+        "message": _cookie_status_cache["message"],
+        "dismissed_at": _cookie_status_cache["dismissed_at"],
+    }
+
+
+def update_cookie_status(valid: bool, message: str) -> None:
+    """更新缓存的 cookie 验证状态"""
+    from datetime import datetime
+    _cookie_status_cache["valid"] = valid
+    _cookie_status_cache["last_checked"] = datetime.now().isoformat()
+    _cookie_status_cache["message"] = message
+    _save_cookie_status_to_disk()
+
+
+def dismiss_cookie_warning():
+    """标记 cookie 预警已关闭（持久化，跨重启可靠）"""
+    from datetime import datetime
+    _cookie_status_cache["dismissed_at"] = datetime.now().isoformat()
+    _save_cookie_status_to_disk()

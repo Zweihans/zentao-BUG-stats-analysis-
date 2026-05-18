@@ -253,3 +253,18 @@ async def verify_cookie_endpoint(data: dict):
     if valid:
         save_cookie(cookie)
     return {"valid": valid, "message": msg}
+
+
+@router.get("/cookie/status")
+async def cookie_status():
+    """获取 cookie 状态（轻量，不触发 Playwright）"""
+    from app.services.cookie_manager import get_cookie_status
+    return get_cookie_status()
+
+
+@router.post("/cookie/dismiss")
+async def cookie_dismiss():
+    """关闭 cookie 预警横幅（持久化到服务端）"""
+    from app.services.cookie_manager import dismiss_cookie_warning
+    dismiss_cookie_warning()
+    return {"ok": True}

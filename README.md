@@ -51,7 +51,7 @@ python main.py
 │   │   ├── cookie_manager.py
 │   │   ├── diff_engine.py
 │   │   ├── file_reader.py
-│   │   ├── exporter.py
+│   │   ├── export.py
 │   │   ├── scheduler.py # 定时任务调度
 │   │   └── trend_store.py # 趋势数据持久化
 │   └── stores/          # 数据持久化
@@ -76,6 +76,22 @@ python main.py
 - **实时通信**: Server-Sent Events（SSE）推送下载进度
 
 ## 更新日志
+
+### v3.4.0 (2026-05-18)
+- UI 全面升级：暖骨色 monochrome 调色板、发丝级边框、Spring 缓动曲线、微阴影
+- 更多过渡动效：骨架屏加载、卡片悬浮抬升、模态缩放淡入、按钮波纹
+- 桌面快捷方式图标改为透明底深色虫子（含5尺寸 ICO）
+- 重启服务改用 pythonw.exe 无窗口启动，消除多余 CMD 窗口
+- 定时提醒/Cookie 警告关闭后服务端持久化，重启不再复现
+- 邮件报告/周报移除"较上期"变化列
+- AI 催办文案接入可配置 LLM（OpenAI/Anthropic 兼容）
+- 修复 AI 生成中文案无换行的问题
+
+### v3.3.0 (2026-05-12)
+- PyWebView 桌面应用：原生窗口 + WebView2，单实例锁，控制台隐藏
+- VBScript 无窗口启动器（启动.vbs）
+- 忽略/确认记录服务端持久化（不受 WebView2 缓存影响）
+- 关注人员匹配增加数字后缀歧义检测
 
 ### v3.2.0 (2026-05-08)
 - 新增一键催办：支持单人/多人模式，预览后复制催办文案（含 BUG 详情与链接）

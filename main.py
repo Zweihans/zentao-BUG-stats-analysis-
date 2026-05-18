@@ -28,14 +28,27 @@ def _hide_console():
         pass
 
 
+_mutex_handle = None
+
 def _ensure_single_instance():
     """通过 Windows 命名 Mutex 确保单实例（进程退出自动释放，重启无残留）"""
-    handle = ctypes.windll.kernel32.CreateMutexW(None, False, "ZentaoBugAnalyzer_Mutex")
+    global _mutex_handle
+    _mutex_handle = ctypes.windll.kernel32.CreateMutexW(None, False, "ZentaoBugAnalyzer_Mutex")
     if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
         ctypes.windll.user32.MessageBoxW(0, "禅道BUG分析工具已在运行中", "提示", 0x40)
         sys.exit(0)
-    # 保持 handle 存活直到进程退出
-    atexit.register(lambda: ctypes.windll.kernel32.CloseHandle(handle))
+    # 标记 handle 不可继承，防止子进程继承导致误判
+    HANDLE_FLAG_INHERIT = 1
+    ctypes.windll.kernel32.SetHandleInformation(_mutex_handle, HANDLE_FLAG_INHERIT, 0)
+    atexit.register(lambda: ctypes.windll.kernel32.CloseHandle(_mutex_handle))
+
+
+def release_mutex():
+    """重启前释放 Mutex，让新进程可以获取"""
+    global _mutex_handle
+    if _mutex_handle:
+        ctypes.windll.kernel32.CloseHandle(_mutex_handle)
+        _mutex_handle = None
 
 
 def _show_error(title, msg):
@@ -62,6 +75,15 @@ def _is_port_in_use(port):
 def _start_server():
     os.chdir(BASE_DIR)
     import uvicorn
+    import sys as _sys
+    # pythonw.exe / DETACHED_PROCESS 下 stdout/stderr 可能为 None 或是无效句柄
+    # 无条件重定向到日志文件，确保 uvicorn 日志不会崩溃
+    log_dir = os.path.join(BASE_DIR, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, "server.log")
+    _log_fp = open(log_file, 'a', encoding='utf-8')
+    _sys.stdout = _log_fp
+    _sys.stderr = _log_fp
     uvicorn.run("app.server:app", host="127.0.0.1", port=PORT, log_level="info", reload=False)
 
 

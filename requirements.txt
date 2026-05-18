@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+apscheduler
+playwright
+python-multipart
+python-dotenv
+requests
+pywebview

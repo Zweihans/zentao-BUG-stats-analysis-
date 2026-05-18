@@ -99,6 +99,19 @@ async function startBatchDownload(ids) {
       }
     });
 
+    // 显示前往分析链接
+    if (okCount > 0) {
+      var okResults = results.filter(function(r) { return r.status === 'ok'; });
+      var linksHtml = okResults.map(function(r) {
+        // 从卡片中找到项目名
+        var cb = document.querySelector('.batch-check[data-id="' + r.project + '"]');
+        var projectName = cb ? (cb.closest('.project-card').querySelector('span').textContent || r.project) : r.project;
+        return '<a href="#" style="margin:0 8px; text-decoration:none; font-weight:500;" onclick="gotoAnalysis(\'' + r.project + '\');return false;">' + projectName + '</a>';
+      }).join('');
+      document.getElementById('batch-goto-links').innerHTML = linksHtml;
+      document.getElementById('batch-goto-analysis').style.display = '';
+    }
+
     startBtn.style.display = 'inline-flex';
     cancelBtn.style.display = 'none';
     batchEventSource.close();

@@ -45,7 +45,7 @@ app/
 │   ├── config_store.py  # 应用配置持久化（.app_config.json）
 │   ├── cookie_manager.py# Cookie 存储与验证（Playwright 资源 finally 清理）
 │   ├── diff_engine.py   # 新旧 BUG 对比，标记 is_new
-│   ├── exporter.py      # 报表导出逻辑
+│   ├── export.py        # 报表导出逻辑
 │   ├── file_reader.py   # xlsx/csv 解析（zipfile+XML 直接解析，含 inlineStr 支持）
 │   ├── scheduler.py     # APScheduler 定时任务（串行下载 + 日志 5MB 轮转）
 │   └── trend_store.py   # 趋势数据 upsert（按日期覆盖，线程安全）

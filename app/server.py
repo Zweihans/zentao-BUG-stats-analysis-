@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
         pass
 
 
-app = FastAPI(title="禅道BUG分析工具", version="3.2.0", lifespan=lifespan)
+app = FastAPI(title="禅道BUG分析工具", version="3.7.0", lifespan=lifespan)
 
 from app.api import projects, analyze, focus, import_api, export, trend, config_api, urge_api
 app.include_router(projects.router, prefix="/api")
@@ -43,6 +43,20 @@ app.include_router(urge_api.router, prefix="/api")
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/schedule/last-result")
+async def schedule_last_result():
+    from app.services.scheduler import load_schedule_result
+    result = load_schedule_result()
+    return result or {"ok": True, "time": None, "results": []}
+
+
+@app.post("/api/schedule/dismiss")
+async def schedule_dismiss():
+    from app.services.scheduler import dismiss_schedule_notification
+    dismiss_schedule_notification()
+    return {"ok": True}
 
 
 @app.post("/api/cleanup")
@@ -88,10 +102,37 @@ async def cache_info():
 
 @app.post("/api/restart")
 async def restart_server():
-    """重启服务（通过 os.execv 替换当前进程）"""
+    """重启服务：通过批处理等旧进程退出后再启动新进程，避免 mutex/端口冲突"""
+    import subprocess
     def _do_restart():
         time.sleep(0.3)
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        # 释放 mutex（入口模块名是 __main__ 而非 main）
+        try:
+            main_mod = sys.modules.get('__main__')
+            if main_mod and hasattr(main_mod, 'release_mutex'):
+                main_mod.release_mutex()
+        except Exception:
+            pass
+        # 中间进程用 pythonw.exe 避免控制台窗口
+        python_dir = os.path.dirname(sys.executable)
+        pythonw_exe = os.path.join(python_dir, 'pythonw.exe')
+        if not os.path.exists(pythonw_exe):
+            pythonw_exe = sys.executable  # fallback
+
+        main_py = os.path.join(BASE_DIR, "main.py")
+        restart_script = os.path.join(BASE_DIR, "_restart.py")
+        with open(restart_script, 'w', encoding='utf-8') as f:
+            f.write('import time, subprocess, sys, os\n' +
+                    'time.sleep(3)\n' +
+                    'subprocess.Popen([sys.executable, %r], cwd=%r)\n' % (main_py, BASE_DIR) +
+                    'try:\n    os.remove(__file__)\n' +
+                    'except Exception:\n    pass\n')
+        subprocess.Popen(
+            [pythonw_exe, restart_script],
+            cwd=BASE_DIR,
+            creationflags=0x00000008 if sys.platform == 'win32' else 0,
+        )
+        os._exit(0)
     threading.Thread(target=_do_restart, daemon=True).start()
     return {"ok": True}
 
