@@ -1342,8 +1342,7 @@ function loadConfigPage() {
       if (input) input.value = data.expiration_hours;
       var schedEnabled = document.getElementById('config-schedule-enabled');
       if (schedEnabled) schedEnabled.checked = data.schedule_enabled;
-      var schedHour = document.getElementById('config-schedule-hour');
-      if (schedHour) schedHour.value = data.schedule_hour;
+      _renderScheduleHours(data.schedule_hours || []);
       // 加载催办偏好
       if (data.urge_style) _urgeStyle = data.urge_style;
       if (data.urge_custom_prompt !== undefined) _urgeCustomPrompt = data.urge_custom_prompt || '';
@@ -1475,23 +1474,35 @@ document.addEventListener('DOMContentLoaded', function() {
   if (scheduleSaveBtn) {
     scheduleSaveBtn.addEventListener('click', async function() {
       var enabledEl = document.getElementById('config-schedule-enabled');
-      var hourEl = document.getElementById('config-schedule-hour');
       var resultEl = document.getElementById('config-schedule-result');
       var enabled = enabledEl ? enabledEl.checked : false;
-      var hour = parseInt(hourEl ? hourEl.value : '9', 10);
-      if (isNaN(hour) || hour < 0 || hour > 23) {
-        resultEl.textContent = '请输入 0-23 之间的小时数';
+      var hours = _collectScheduleHours();
+      if (enabled && hours.length === 0) {
+        resultEl.textContent = '请至少添加一个定时时间';
         resultEl.style.color = 'var(--red)';
         return;
       }
       try {
-        await API.put('/config', { schedule_enabled: enabled, schedule_hour: hour });
-        resultEl.textContent = enabled ? '已保存 · 每天 ' + hour + ':00 自动下载' : '已关闭定时下载';
+        await API.put('/config', { schedule_enabled: enabled, schedule_hours: hours });
+        if (enabled) {
+          var timeStr = hours.map(function(h) { return h + ':00'; }).join(', ');
+          resultEl.textContent = '已保存 · 每天 ' + timeStr + ' 自动下载';
+        } else {
+          resultEl.textContent = '已关闭定时下载';
+        }
         resultEl.style.color = 'var(--green)';
       } catch (e) {
         resultEl.textContent = '保存失败';
         resultEl.style.color = 'var(--red)';
       }
+    });
+  }
+
+  // 添加定时时间按钮
+  var addHourBtn = document.getElementById('btn-add-schedule-hour');
+  if (addHourBtn) {
+    addHourBtn.addEventListener('click', function() {
+      _addScheduleHour();
     });
   }
 
@@ -2393,35 +2404,115 @@ document.getElementById('btn-download-trend-png').addEventListener('click', func
 });
 
 // ========== 初始化 ==========
+// 定时时间选择器辅助
+var _scheduleHourCount = 0;
+
+function _renderScheduleHours(hours) {
+  var container = document.getElementById('schedule-hours-container');
+  if (!container) return;
+  container.innerHTML = '';
+  _scheduleHourCount = 0;
+  if (!hours || hours.length === 0) {
+    _addScheduleHour(); // 默认一个空选择器
+    return;
+  }
+  hours.forEach(function(h) { _addScheduleHour(h); });
+}
+
+function _addScheduleHour(preselected) {
+  var container = document.getElementById('schedule-hours-container');
+  if (!container) return;
+  var id = 'schedule-hour-' + (_scheduleHourCount++);
+  var presel = typeof preselected === 'number' ? preselected : -1;
+
+  var wrapper = document.createElement('div');
+  wrapper.style.cssText = 'display:flex;align-items:center;gap:6px;';
+
+  var select = document.createElement('select');
+  select.id = id;
+  select.style.cssText = 'width:80px;padding:4px 6px;border:1px solid var(--input-border);border-radius:var(--radius-input);font-size:12px;';
+  for (var h = 0; h <= 23; h++) {
+    var opt = document.createElement('option');
+    opt.value = h;
+    opt.textContent = h + ':00';
+    if (h === presel) opt.selected = true;
+    select.appendChild(opt);
+  }
+  wrapper.appendChild(select);
+
+  var delBtn = document.createElement('button');
+  delBtn.textContent = '×';
+  delBtn.style.cssText = 'background:none;border:none;font-size:16px;cursor:pointer;color:var(--silver);padding:0 4px;line-height:1;';
+  delBtn.onclick = function() {
+    wrapper.remove();
+  };
+  wrapper.appendChild(delBtn);
+
+  container.appendChild(wrapper);
+}
+
+function _collectScheduleHours() {
+  var container = document.getElementById('schedule-hours-container');
+  if (!container) return [];
+  var selects = container.querySelectorAll('select');
+  var hours = [];
+  selects.forEach(function(s) {
+    var h = parseInt(s.value, 10);
+    if (!isNaN(h) && hours.indexOf(h) === -1) hours.push(h);
+  });
+  hours.sort(function(a, b) { return a - b; });
+  return hours;
+}
+
 // 定时任务通知轮询
 function pollScheduleResult() {
   API.get('/schedule/last-result').then(function(result) {
-    if (!result || !result.time) return;
-    // 服务端持久化的关闭标记，跨重启可靠
-    if (result.dismissed_time && result.dismissed_time >= result.time) return;
-
+    if (!result) return;
     var banner = document.getElementById('schedule-notify-banner');
     var textEl = document.getElementById('schedule-notify-text');
     if (!banner || !textEl) return;
 
-    var okCount = result.ok_count || 0;
-    var failCount = result.fail_count || 0;
-    var results = result.results || [];
-    var parts = ['定时下载完成: ' + okCount + ' 成功'];
-    if (failCount > 0) parts.push(failCount + ' 失败');
-    if (results.length > 0) {
-      parts.push('(' + results.map(function(r) { return r.name || r.project_id; }).join(', ') + ')');
-    }
-    textEl.textContent = parts.join(' · ');
+    var hasResult = result.time;
+    var dismissed = result.dismissed_time && result.dismissed_time >= result.time;
+    var scheduleEnabled = result.schedule_enabled;
+    var scheduleHours = result.schedule_hours || [];
 
-    if (failCount > 0) {
-      banner.style.background = '#fef3c7';
-      banner.style.borderColor = '#f59e0b';
-    } else {
+    // 构建调度时间文本
+    var scheduleText = '';
+    if (scheduleEnabled && scheduleHours.length > 0) {
+      scheduleText = '下次下载: 每天 ' + scheduleHours.map(function(h) { return h + ':00'; }).join(', ');
+    }
+
+    if (hasResult && !dismissed) {
+      // 有执行结果通知
+      var okCount = result.ok_count || 0;
+      var failCount = result.fail_count || 0;
+      var results = result.results || [];
+      var parts = ['定时下载完成: ' + okCount + ' 成功'];
+      if (failCount > 0) parts.push(failCount + ' 失败');
+      if (results.length > 0) {
+        parts.push('(' + results.map(function(r) { return r.name || r.project_id; }).join(', ') + ')');
+      }
+      if (scheduleText) parts.push(scheduleText);
+      textEl.textContent = parts.join(' · ');
+
+      if (failCount > 0) {
+        banner.style.background = '#fef3c7';
+        banner.style.borderColor = '#f59e0b';
+      } else {
+        banner.style.background = '#e8f0fe';
+        banner.style.borderColor = '#c4d7f2';
+      }
+      banner.style.display = 'flex';
+    } else if (scheduleEnabled && scheduleHours.length > 0) {
+      // 无通知但调度已启用，显示调度时间
+      textEl.textContent = scheduleText;
       banner.style.background = '#e8f0fe';
       banner.style.borderColor = '#c4d7f2';
+      banner.style.display = 'flex';
+    } else {
+      banner.style.display = 'none';
     }
-    banner.style.display = 'flex';
   }).catch(function() {});
 }
 

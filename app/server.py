@@ -48,8 +48,12 @@ async def health():
 @app.get("/api/schedule/last-result")
 async def schedule_last_result():
     from app.services.scheduler import load_schedule_result
-    result = load_schedule_result()
-    return result or {"ok": True, "time": None, "results": []}
+    from app.services.config_store import get_config
+    result = load_schedule_result() or {"ok": True, "time": None, "results": []}
+    config = get_config()
+    result["schedule_enabled"] = config.get("schedule_enabled", False)
+    result["schedule_hours"] = config.get("schedule_hours", [])
+    return result
 
 
 @app.post("/api/schedule/dismiss")

@@ -8,7 +8,8 @@ CONFIG_FILE = os.path.join(BASE_DIR, ".app_config.json")
 DEFAULTS = {
     "expiration_hours": 24,
     "schedule_enabled": False,
-    "schedule_hour": 9,
+    "schedule_hour": 9,       # 向后兼容，不再使用
+    "schedule_hours": [],     # 新格式：[9, 14, 17]
     "urge_style": "formal",
     "urge_custom_prompt": "",
 }
@@ -34,6 +35,12 @@ def get_config() -> dict:
     cfg = {}
     for k, v in DEFAULTS.items():
         cfg[k] = data.get(k, v)
+    # 迁移旧单时间格式 → 新多时间格式
+    if not cfg.get('schedule_hours') and cfg.get('schedule_hour') is not None:
+        h = cfg['schedule_hour']
+        if isinstance(h, int) and 0 <= h <= 23:
+            cfg['schedule_hours'] = [h]
+            update_config({'schedule_hours': [h]})
     return cfg
 
 

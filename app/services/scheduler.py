@@ -95,7 +95,7 @@ def _log(project_id: str, message: str):
 def refresh_schedule():
     scheduler = _get_scheduler()
     for job in list(scheduler.get_jobs()):
-        if job.id.startswith("import_project"):
+        if job.id.startswith("import_all_"):
             scheduler.remove_job(job.id)
 
     from app.services.config_store import get_config
@@ -103,7 +103,10 @@ def refresh_schedule():
     if not config.get('schedule_enabled'):
         return
 
-    hour = config.get('schedule_hour', 9)
+    schedule_hours = config.get('schedule_hours', [])
+    if not schedule_hours:
+        _log("system", "调度器未启用: 未配置定时时间")
+        return
 
     from app.stores.project_store import load_projects
     projects = [p for p in load_projects() if p.get('focus')]
@@ -111,16 +114,18 @@ def refresh_schedule():
         _log("system", "调度器未启用: 没有关注项目")
         return
 
-    scheduler.add_job(
-        _run_scheduled_import_all,
-        'cron',
-        hour=hour,
-        minute=7,
-        id="import_all_projects"
-    )
+    for hour in schedule_hours:
+        scheduler.add_job(
+            _run_scheduled_import_all,
+            'cron',
+            hour=hour,
+            minute=7,
+            id=f"import_all_{hour}"
+        )
 
     names = [p.get('name', p['id']) for p in projects]
-    _log("system", f"调度器已刷新: {len(projects)}个项目 ({', '.join(names)})，每天{hour}:07 串行执行")
+    times = ', '.join(f'{h}:07' for h in schedule_hours)
+    _log("system", f"调度器已刷新: {len(projects)}个项目 ({', '.join(names)})，每天 {times} 串行执行")
 
 
 def start_scheduler():
