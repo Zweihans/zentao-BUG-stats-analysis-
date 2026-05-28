@@ -168,6 +168,21 @@ def dismiss_schedule_notification():
         _save_schedule_result(result)
 
 
+def dismiss_schedule_info():
+    """关闭定时信息横幅（非执行结果，仅调度时间展示）"""
+    result = load_schedule_result() or {}
+    result['dismissed_info'] = True
+    _save_schedule_result(result)
+
+
+def reset_schedule_info_dismiss():
+    """配置变更时重置 schedule info 的关闭状态，让横幅重新出现"""
+    result = load_schedule_result()
+    if result and result.get('dismissed_info'):
+        result.pop('dismissed_info', None)
+        _save_schedule_result(result)
+
+
 def stop_scheduler():
     global _scheduler
     if _scheduler and _scheduler.running:

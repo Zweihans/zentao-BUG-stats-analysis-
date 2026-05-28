@@ -2504,8 +2504,7 @@ function pollScheduleResult() {
         banner.style.borderColor = '#c4d7f2';
       }
       banner.style.display = 'flex';
-    } else if (scheduleEnabled && scheduleHours.length > 0) {
-      // 无通知但调度已启用，显示调度时间
+    } else if (scheduleEnabled && scheduleHours.length > 0 && !result.dismissed_info) {
       textEl.textContent = scheduleText;
       banner.style.background = '#e8f0fe';
       banner.style.borderColor = '#c4d7f2';
@@ -2519,6 +2518,7 @@ function pollScheduleResult() {
 function dismissScheduleNotify() {
   document.getElementById('schedule-notify-banner').style.display = 'none';
   API.post('/schedule/dismiss').catch(function() {});
+  API.post('/schedule/dismiss-info').catch(function() {});
 }
 
 // Cookie 预警

@@ -33,8 +33,10 @@ async def config_put(data: dict):
     if filtered:
         update_config(filtered)
     try:
-        from app.services.scheduler import refresh_schedule
+        from app.services.scheduler import refresh_schedule, reset_schedule_info_dismiss
         refresh_schedule()
+        if 'schedule_hours' in filtered or 'schedule_enabled' in filtered:
+            reset_schedule_info_dismiss()
     except Exception:
         pass
     return get_config()

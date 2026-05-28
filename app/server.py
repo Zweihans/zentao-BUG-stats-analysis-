@@ -63,6 +63,13 @@ async def schedule_dismiss():
     return {"ok": True}
 
 
+@app.post("/api/schedule/dismiss-info")
+async def schedule_dismiss_info():
+    from app.services.scheduler import dismiss_schedule_info
+    dismiss_schedule_info()
+    return {"ok": True}
+
+
 @app.post("/api/cleanup")
 async def cleanup_old_files():
     """清理 downloads 目录中的旧文件（非今天）"""

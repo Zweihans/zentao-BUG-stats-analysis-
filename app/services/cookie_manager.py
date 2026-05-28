@@ -156,11 +156,14 @@ def get_cookie_status() -> dict:
 
 
 def update_cookie_status(valid: bool, message: str) -> None:
-    """更新缓存的 cookie 验证状态"""
+    """更新缓存的 cookie 验证状态，状态变更时重置关闭标记"""
     from datetime import datetime
+    changed = _cookie_status_cache["valid"] != valid
     _cookie_status_cache["valid"] = valid
     _cookie_status_cache["last_checked"] = datetime.now().isoformat()
     _cookie_status_cache["message"] = message
+    if changed:
+        _cookie_status_cache["dismissed_at"] = None
     _save_cookie_status_to_disk()
 
 
