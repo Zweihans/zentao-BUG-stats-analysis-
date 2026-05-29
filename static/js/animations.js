@@ -74,18 +74,21 @@ var Anim = (function() {
   function bannerShow(el) {
     if (!el || el.style.display === 'flex') return;
     el.style.display = 'flex';
-    gsap.fromTo(el, { height: 0, autoAlpha: 0 }, { height: 'auto', autoAlpha: 1, duration: dur(200), ease: ease() });
+    el.style.overflow = 'hidden';
+    gsap.fromTo(el, { height: 0, autoAlpha: 0 }, { height: 'auto', autoAlpha: 1, duration: dur(200), ease: ease(), onComplete: function() { el.style.overflow = ''; } });
   }
 
   // 横幅收起
   function bannerHide(el) {
-    if (!el) return;
+    if (!el || el.style.display === 'none') return;
+    el.style.overflow = 'hidden';
     gsap.to(el, {
-      height: 0, autoAlpha: 0, marginTop: 0, marginBottom: 0, paddingTop: 0, paddingBottom: 0,
-      duration: dur(160), ease: 'power2.in',
+      height: 0, autoAlpha: 0,
+      duration: dur(150), ease: 'power2.in',
       onComplete: function() {
         el.style.display = 'none';
-        gsap.set(el, { clearProps: 'all' });
+        el.style.height = '';
+        el.style.overflow = '';
       }
     });
   }
