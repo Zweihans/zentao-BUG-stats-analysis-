@@ -3,16 +3,18 @@
 // ========== 路由 ==========
 function navigateTo(pageName) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.getElementById('page-' + pageName).classList.add('active');
+  var pageEl = document.getElementById('page-' + pageName);
+  pageEl.classList.add('active');
 
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  const nav = document.querySelector('[data-page="' + pageName + '"]');
+  var nav = document.querySelector('[data-page="' + pageName + '"]');
   if (nav) nav.classList.add('active');
 
-  // URL hash 路由，刷新后保持当前页面
   if (location.hash !== '#' + pageName) {
     history.replaceState(null, '', '#' + pageName);
   }
+
+  Anim.pageIn(pageEl);
 
   if (pageName === 'settings') loadSettingsPage();
   if (pageName === 'batch') loadBatchPage();
@@ -152,7 +154,7 @@ function showAmbiguousModal(projectId, ambiguousList) {
     html += '</div>';
   });
   listEl.innerHTML = html;
-  document.getElementById('ambiguous-modal').style.display = 'flex';
+  Anim.modalOpen('#ambiguous-modal');
 }
 
 // 确认按钮
@@ -176,7 +178,7 @@ document.addEventListener('DOMContentLoaded', function() {
           await API.post('/focus-pool/confirm-ambiguous', { project_id: _ambiguousProjectId, selected: selected });
         } catch (e) {}
       }
-      document.getElementById('ambiguous-modal').style.display = 'none';
+      Anim.modalClose('#ambiguous-modal');
       loadAnalysisData(_ambiguousProjectId);
     });
   }
@@ -187,7 +189,7 @@ document.addEventListener('DOMContentLoaded', function() {
       // 持久化：跳过的池名不再弹
       var poolNames = _ambiguousData.map(function(item) { return item.pool_name; });
       _addIgnoredAmbiguous(_ambiguousProjectId, poolNames);
-      document.getElementById('ambiguous-modal').style.display = 'none';
+      Anim.modalClose('#ambiguous-modal');
     });
   }
 
@@ -221,7 +223,7 @@ function dismissUnfocusedAlert() {
   if (_quickAddNames && _quickAddNames.length) {
     _addIgnored(pid, _quickAddNames);
   }
-  document.getElementById('unfocused-alert').style.display = 'none';
+  Anim.bannerHide(document.getElementById('unfocused-alert'));
 }
 
 document.getElementById('project-select').addEventListener('change', async function() {
@@ -230,7 +232,7 @@ document.getElementById('project-select').addEventListener('change', async funct
     document.getElementById('analysis-welcome').style.display = 'none';
     document.getElementById('analysis-empty').style.display = 'flex';
     document.getElementById('analysis-loaded').style.display = 'none';
-    document.getElementById('unfocused-alert').style.display = 'none';
+    Anim.bannerHide(document.getElementById('unfocused-alert'));
     return;
   }
   document.getElementById('analysis-welcome').style.display = 'none';
@@ -338,9 +340,9 @@ async function loadAnalysisData(projectId) {
     if (newUnfocused.length > 0) {
       document.getElementById('unfocused-names').textContent = newUnfocused.join('、');
       _quickAddNames = newUnfocused;
-      alertEl.style.display = 'flex';
+      Anim.bannerShow(alertEl);
     } else {
-      alertEl.style.display = 'none';
+      Anim.bannerHide(alertEl);
     }
 
     // 自动匹配全局关注池
@@ -377,7 +379,7 @@ async function loadAnalysisData(projectId) {
   } catch (e) {
     document.getElementById('analysis-empty').style.display = 'flex';
     container.style.display = 'none';
-    document.getElementById('unfocused-alert').style.display = 'none';
+    Anim.bannerHide(document.getElementById('unfocused-alert'));
     document.getElementById('stale-alert').style.display = 'none';
     document.getElementById('data-status').textContent = '加载失败';
     console.error(e);
@@ -683,7 +685,7 @@ async function openFocusModal(projectId) {
     if (!projectId) { alert('请先选择项目'); return; }
   }
   _focusModalProjectId = projectId;
-  document.getElementById('focus-modal').style.display = 'flex';
+  Anim.modalOpen('#focus-modal');
   document.getElementById('focus-modal-search').value = '';
 
   try {
@@ -726,7 +728,7 @@ function openUnfocusedQuickAdd(projectId) {
   _focusModalProjectId = projectId;
   _focusQuickAddMode = true;
   document.getElementById('focus-modal-title').textContent = '新增人员关注';
-  document.getElementById('focus-modal').style.display = 'flex';
+  Anim.modalOpen('#focus-modal');
   document.getElementById('focus-modal-search').value = '';
   _focusModalPersons = _quickAddNames.map(function(name) {
     return { name: name, checked: false };
@@ -759,7 +761,7 @@ function renderFocusModalList(query) {
 }
 
 function closeFocusModal() {
-  document.getElementById('focus-modal').style.display = 'none';
+  Anim.modalClose('#focus-modal');
   document.getElementById('focus-modal-title').textContent = '管理COC人员';
   _focusModalProjectId = null;
   _focusModalPersons = [];
@@ -908,13 +910,13 @@ if (typeof Chart !== 'undefined' && Chart.register) {
 document.getElementById('btn-chart-bar').addEventListener('click', function() {
   var pid = getSelectedProjectId('#project-select');
   if (!pid) { alert('请先选择项目'); return; }
-  document.getElementById('chart-bar-modal').style.display = 'flex';
+  Anim.modalOpen('#chart-bar-modal');
   document.getElementById('chart-bar-filter').value = 'focus';
   renderBarChart();
 });
 
 document.getElementById('btn-chart-bar-close').addEventListener('click', function() {
-  document.getElementById('chart-bar-modal').style.display = 'none';
+  Anim.modalClose('#chart-bar-modal');
   if (_barChart) { _barChart.destroy(); _barChart = null; }
 });
 
@@ -992,13 +994,13 @@ function renderBarChart() {
 document.getElementById('btn-chart-pie').addEventListener('click', function() {
   var pid = getSelectedProjectId('#project-select');
   if (!pid) { alert('请先选择项目'); return; }
-  document.getElementById('chart-pie-modal').style.display = 'flex';
+  Anim.modalOpen('#chart-pie-modal');
   document.getElementById('chart-pie-filter').value = 'focus';
   renderPieChart();
 });
 
 document.getElementById('btn-chart-pie-close').addEventListener('click', function() {
-  document.getElementById('chart-pie-modal').style.display = 'none';
+  Anim.modalClose('#chart-pie-modal');
   if (_pieChart) { _pieChart.destroy(); _pieChart = null; }
 });
 
@@ -1122,7 +1124,7 @@ document.getElementById('trend-person-search').addEventListener('input', functio
 });
 
 async function openTrendModal(projectId) {
-  document.getElementById('chart-trend-modal').style.display = 'flex';
+  Anim.modalOpen('#chart-trend-modal');
   document.querySelector('.trend-person-tag[data-trend-person="focus"]').classList.add('active');
   document.querySelector('.trend-person-tag[data-trend-person="all"]').classList.remove('active');
   document.querySelector('.trend-data-tag[data-trend-data="total"]').classList.add('active');
@@ -1147,7 +1149,7 @@ async function openTrendModal(projectId) {
 }
 
 function closeTrendModal() {
-  document.getElementById('chart-trend-modal').style.display = 'none';
+  Anim.modalClose('#chart-trend-modal');
   if (_trendChart) { _trendChart.destroy(); _trendChart = null; }
   _trendData = null;
 }
@@ -1745,7 +1747,7 @@ function openUrgeModal(scope) {
   // 设置额外提示词
   if (extraInput) extraInput.value = _urgeCustomPrompt;
 
-  document.getElementById('urge-modal').style.display = 'flex';
+  Anim.modalOpen('#urge-modal');
 
   // 加载中状态
   textarea.value = '正在生成...';
@@ -1771,13 +1773,13 @@ document.getElementById('btn-urge-reminder').addEventListener('click', function(
 });
 
 document.getElementById('btn-urge-modal-close').addEventListener('click', function() {
-  document.getElementById('urge-modal').style.display = 'none';
+  Anim.modalClose('#urge-modal');
 });
 document.getElementById('btn-urge-modal-close2').addEventListener('click', function() {
-  document.getElementById('urge-modal').style.display = 'none';
+  Anim.modalClose('#urge-modal');
 });
 document.getElementById('urge-modal').addEventListener('click', function(e) {
-  if (e.target === this) document.getElementById('urge-modal').style.display = 'none';
+  if (e.target === this) Anim.modalClose('#urge-modal');
 });
 
 // 范围切换
@@ -1839,7 +1841,7 @@ document.getElementById('btn-email-report').addEventListener('click', async func
   if (!pid) { alert('请先选择项目'); return; }
   if (!_currentPersons || !_currentPersons.length) { alert('请先加载数据'); return; }
 
-  document.getElementById('email-report-modal').style.display = 'flex';
+  Anim.modalOpen('#email-report-modal');
   switchEmailTab('html');
 
   try { _emailTrendData = await API.trend.get(pid); } catch(e) { _emailTrendData = null; }
@@ -1869,7 +1871,7 @@ document.getElementById('email-report-modal').addEventListener('click', function
 });
 
 function closeEmailModal() {
-  document.getElementById('email-report-modal').style.display = 'none';
+  Anim.modalClose('#email-report-modal');
   if (_emailTrendChart) { _emailTrendChart.destroy(); _emailTrendChart = null; }
   _emailTrendData = null;
 }
@@ -2057,7 +2059,7 @@ document.getElementById('btn-weekly-report').addEventListener('click', async fun
   if (!pid) { alert('请先选择项目'); return; }
   if (!_currentPersons || !_currentPersons.length) { alert('请先加载数据'); return; }
 
-  document.getElementById('weekly-report-modal').style.display = 'flex';
+  Anim.modalOpen('#weekly-report-modal');
 
   try { _emailTrendData = await API.trend.get(pid); } catch(e) { _emailTrendData = null; }
   var newIds = [];
@@ -2072,7 +2074,7 @@ document.getElementById('weekly-report-modal').addEventListener('click', functio
 });
 
 function closeWeeklyModal() {
-  document.getElementById('weekly-report-modal').style.display = 'none';
+  Anim.modalClose('#weekly-report-modal');
   _weeklyHTML = '';
 }
 
@@ -2503,20 +2505,20 @@ function pollScheduleResult() {
         banner.style.background = '#e8f0fe';
         banner.style.borderColor = '#c4d7f2';
       }
-      banner.style.display = 'flex';
+      Anim.bannerShow(banner);
     } else if (scheduleEnabled && scheduleHours.length > 0 && !result.dismissed_info) {
       textEl.textContent = scheduleText;
       banner.style.background = '#e8f0fe';
       banner.style.borderColor = '#c4d7f2';
-      banner.style.display = 'flex';
+      Anim.bannerShow(banner);
     } else {
-      banner.style.display = 'none';
+      Anim.bannerHide(banner);
     }
   }).catch(function() {});
 }
 
 function dismissScheduleNotify() {
-  document.getElementById('schedule-notify-banner').style.display = 'none';
+  Anim.bannerHide(document.getElementById('schedule-notify-banner'));
   API.post('/schedule/dismiss').catch(function() {});
   API.post('/schedule/dismiss-info').catch(function() {});
 }
@@ -2532,27 +2534,27 @@ function checkCookieWarn() {
     if (!status.has_cookie) {
       textEl.textContent = '尚未配置 Cookie，无法下载 BUG 数据。请前往设置页配置。';
       actionsEl.innerHTML = '<button class="btn btn-primary btn-sm" onclick="navigateTo(\'config\');return false;">前往设置</button>';
-      if (!status.dismissed_at) banner.style.display = 'flex';
+      if (!status.dismissed_at) Anim.bannerShow(banner);
     } else if (status.valid === false && status.last_checked) {
       textEl.textContent = 'Cookie 已失效 (' + (status.message || '请更新') + ')，数据下载将失败。';
       actionsEl.innerHTML = '<button class="btn btn-primary btn-sm" onclick="navigateTo(\'config\');return false;">更新 Cookie</button>';
-      if (!status.dismissed_at) banner.style.display = 'flex';
+      if (!status.dismissed_at) Anim.bannerShow(banner);
     } else if (status.valid === null && !status.last_checked) {
       if ((location.hash || '').replace('#', '') === 'batch') {
         textEl.textContent = 'Cookie 尚未验证，建议先检测是否有效。';
         actionsEl.innerHTML = '<button class="btn btn-secondary btn-sm" onclick="navigateTo(\'config\');return false;">去检测</button>';
         banner.style.background = '#fef3c7';
         banner.style.borderColor = '#f59e0b';
-        if (!status.dismissed_at) banner.style.display = 'flex';
+        if (!status.dismissed_at) Anim.bannerShow(banner);
       }
     } else {
-      banner.style.display = 'none';
+      Anim.bannerHide(banner);
     }
   }).catch(function() {});
 }
 
 function dismissCookieWarn() {
-  document.getElementById('cookie-warn-banner').style.display = 'none';
+  Anim.bannerHide(document.getElementById('cookie-warn-banner'));
   API.post('/cookie/dismiss').catch(function() {});
 }
 

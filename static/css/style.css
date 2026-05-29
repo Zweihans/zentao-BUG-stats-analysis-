@@ -686,7 +686,7 @@ tbody tr.new td:first-child {
   pointer-events: none;
   z-index: 100;
   box-shadow: var(--shadow-elevated);
-  animation: fadeIn var(--dur-fast) var(--ease-out);
+  /* modal animation handled by GSAP */
 }
 
 /* ======== 进度条 ======== */
@@ -758,14 +758,14 @@ tbody tr.new td:first-child {
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: fadeIn var(--dur-fast) var(--ease-out);
+  /* modal animation handled by GSAP */
 }
 .modal-card {
   background: var(--white);
   border-radius: var(--radius-lg);
   border: 1px solid rgba(0,0,0,0.04);
   box-shadow: var(--shadow-modal);
-  animation: scaleIn 0.35s var(--ease-spring);
+  /* modal animation handled by GSAP */
 }
 
 /* === 邮件报告 === */
