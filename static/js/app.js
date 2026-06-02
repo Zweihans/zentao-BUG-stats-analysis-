@@ -1259,22 +1259,24 @@ function renderTrendChart() {
   var viewMode = document.querySelector('.trend-view-tag.active')?.dataset.trendView || 'sum';
 
   var datasets;
+  var _perDateCounts = [];  // 每日实际贡献人数（仅合计模式）
   if (viewMode === 'sum') {
-    var sumData = _trendData.records.map(function(rec) {
-      var sum = 0; var sumResolved = 0; var sumTotal = 0;
+    var sumData = _trendData.records.map(function(rec, idx) {
+      var sum = 0; var sumResolved = 0; var sumTotal = 0; var personCount = 0;
       (rec.persons || []).forEach(function(p) {
         if (checkedNames.indexOf(p.name) !== -1) {
           sumTotal += (p.total || 0);
           sumResolved += (p.resolved || 0) + (p.closed || 0);
           sum += trendValue(p, dataType);
+          personCount++;
         }
       });
-      // 合计视图下解决率用总计计算
+      _perDateCounts.push(personCount);
       if (isRate) return sumTotal > 0 ? Math.round(sumResolved / sumTotal * 100) : 0;
       return sum;
     });
     datasets = [{
-      label: checkedNames.length + '人合计',
+      label: '合计',
       data: sumData,
       borderColor: '#1c2024',
       backgroundColor: 'rgba(28,32,36,0.08)',
@@ -1316,7 +1318,7 @@ function renderTrendChart() {
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { position: 'top', labels: { boxWidth: 12, boxHeight: 12, padding: 16, usePointStyle: true, pointStyle: 'circle', font: { size: 11 } } },
-        tooltip: { callbacks: { label: function(ctx) { var suffix = isRate ? '%' : ' BUG'; return ctx.dataset.label + ': ' + ctx.parsed.y + suffix; } } }
+        tooltip: { callbacks: { label: function(ctx) { var suffix = isRate ? '%' : ' BUG'; var val = ctx.parsed.y + suffix; if (viewMode === 'sum' && _perDateCounts[ctx.dataIndex] !== undefined) val += ' (' + _perDateCounts[ctx.dataIndex] + '人)'; return ctx.dataset.label + ': ' + val; } } }
       },
       scales: {
         x: { grid: { display: false } },
