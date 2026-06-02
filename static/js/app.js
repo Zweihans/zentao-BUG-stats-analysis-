@@ -1074,6 +1074,7 @@ function renderPieChart() {
 // ========== 趋势图 ==========
 var _trendChart = null;
 var _trendData = null;
+var _trendFocusNames = null;
 
 document.addEventListener('DOMContentLoaded', function() {
   var trendBtn = document.getElementById('btn-chart-trend');
@@ -1136,6 +1137,13 @@ async function openTrendModal(projectId) {
   try {
     var data = await API.trend.get(projectId);
     _trendData = data;
+    // 从 API 获取真实关注列表，而非依赖当前分析数据（当前无BUG的关注人会被漏掉）
+    try {
+      var focusRes = await API.focus.get(projectId);
+      _trendFocusNames = new Set(focusRes.persons || []);
+    } catch (e) {
+      _trendFocusNames = new Set();
+    }
     updateTrendPersonCheckboxes('focus');
     renderTrendChart();
     if (!data || !data.records || data.records.length === 0) {
@@ -1152,6 +1160,7 @@ function closeTrendModal() {
   Anim.modalClose('#chart-trend-modal');
   if (_trendChart) { _trendChart.destroy(); _trendChart = null; }
   _trendData = null;
+  _trendFocusNames = null;
 }
 
 function updateTrendPersonCheckboxes(filterOverride) {
@@ -1165,12 +1174,7 @@ function updateTrendPersonCheckboxes(filterOverride) {
     (rec.persons || []).forEach(function(p) { allNames.add(p.name); });
   });
 
-  var focusNames = new Set();
-  if (typeof _currentPersons !== 'undefined') {
-    _currentPersons.forEach(function(p) {
-      if (p.focus) focusNames.add(p.name);
-    });
-  }
+  var focusNames = _trendFocusNames || new Set();
 
   var checkedMap = {};
   // filterOverride 传入时重置勾选（全部→全选，关注→仅关注），搜索时不重置
