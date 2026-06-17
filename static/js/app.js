@@ -1635,6 +1635,7 @@ var _selectedPersonName = '';
 var _urgeScope = 'all';
 var _urgeStyle = 'formal';
 var _urgeCustomPrompt = '';
+var _lastScheduleRefreshTime = null;
 
 function isActive(st) {
   if (!st) return true;
@@ -2524,6 +2525,16 @@ function pollScheduleResult() {
         banner.style.borderColor = '#c4d7f2';
       }
       Anim.bannerShow(banner);
+
+      // 定时下载成功后自动刷新当前分析页
+      if (okCount > 0 && result.time !== _lastScheduleRefreshTime) {
+        _lastScheduleRefreshTime = result.time;
+        var currentPage = (location.hash || '').replace('#', '');
+        if (currentPage === 'analysis') {
+          var pid = getSelectedProjectId('#project-select');
+          if (pid) loadAnalysisData(pid);
+        }
+      }
     } else if (scheduleEnabled && scheduleHours.length > 0 && !result.dismissed_info) {
       textEl.textContent = scheduleText;
       banner.style.background = '#e8f0fe';
