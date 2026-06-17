@@ -200,6 +200,12 @@ async def auto_match_pool(data: dict):
     if not project_id or not unfocused:
         return {"auto_focused": [], "ambiguous": []}
 
+    # 过滤已被用户忽略的人员（包括手动取消关注的）
+    ignored = get_ignored_unfocused(project_id)
+    unfocused = [n for n in unfocused if n not in ignored]
+    if not unfocused:
+        return {"auto_focused": [], "ambiguous": []}
+
     result = match_pool_names(unfocused, focused)
 
     # 自动关注确定的人员

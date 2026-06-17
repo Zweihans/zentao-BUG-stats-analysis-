@@ -656,10 +656,12 @@ document.getElementById('btn-focus-modal-save').addEventListener('click', async 
   checks.forEach(function(cb) { if (cb.checked) selected.push(cb.dataset.name); });
   var projectId = _focusModalProjectId;
   try {
+    // 获取保存前的关注列表，计算被移除的人
+    var oldFocus = await API.focus.get(projectId);
+    var oldList = (oldFocus.persons || []).slice();
+
     if (_focusQuickAddMode) {
-      // 快速添加模式：合并到现有关注列表
-      var existing = await API.focus.get(projectId);
-      var merged = (existing.persons || []).slice();
+      var merged = oldList.slice();
       selected.forEach(function(name) {
         if (merged.indexOf(name) === -1) merged.push(name);
       });
@@ -667,6 +669,14 @@ document.getElementById('btn-focus-modal-save').addEventListener('click', async 
     } else {
       await API.focus.update(projectId, selected);
     }
+
+    // 被取消关注的人加入忽略列表，防止自动匹配重新加回
+    var removed = oldList.filter(function(name) { return selected.indexOf(name) === -1; });
+    if (removed.length > 0) {
+      API.post('/ignored/' + projectId + '/unfocused', { names: removed }).catch(function(){});
+      removed.forEach(function(name) { _ignoredUnfocusedCache[projectId] = _ignoredUnfocusedCache[projectId] || []; if (_ignoredUnfocusedCache[projectId].indexOf(name) === -1) _ignoredUnfocusedCache[projectId].push(name); });
+    }
+
     closeFocusModal();
     // 刷新人员列表
     var pid = getSelectedProjectId('#project-select');
