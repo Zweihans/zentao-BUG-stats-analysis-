@@ -684,6 +684,7 @@ async function openFocusModal(projectId) {
     projectId = getSelectedProjectId('#project-select');
     if (!projectId) { alert('请先选择项目'); return; }
   }
+  _focusQuickAddMode = false;
   _focusModalProjectId = projectId;
   Anim.modalOpen('#focus-modal');
   document.getElementById('focus-modal-search').value = '';
@@ -764,6 +765,7 @@ function closeFocusModal() {
   Anim.modalClose('#focus-modal');
   document.getElementById('focus-modal-title').textContent = '管理COC人员';
   _focusModalProjectId = null;
+  _focusQuickAddMode = false;
   _focusModalPersons = [];
   _focusQuickAddMode = false;
 }
